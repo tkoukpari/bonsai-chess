@@ -354,24 +354,29 @@ def submit_puzzle_result():
     if user_id:
         try:
             with get_database_connection() as connection:
-                cursor = connection.execute("SELECT elo FROM users WHERE id = ?", (user_id,))
-                user_row = cursor.fetchone()
-                puzzle_elo = puzzle_row["elo"]
-                if not user_row:
-                    return jsonify({"error": "user not found"}), 404
-                user_elo = user_row["elo"]
-                elo_delta = compute_elo_change(user_elo, puzzle_elo, correct)
-                new_elo = max(100, user_elo + elo_delta)
+                attempt_row = connection.execute(
+                    "SELECT correct FROM user_puzzle_attempts WHERE user_id = ? AND puzzle_id = ?",
+                    (user_id, puzzle_id),
+                ).fetchone()
+                if attempt_row is None:
+                    cursor = connection.execute("SELECT elo FROM users WHERE id = ?", (user_id,))
+                    user_row = cursor.fetchone()
+                    puzzle_elo = puzzle_row["elo"]
+                    if not user_row:
+                        return jsonify({"error": "user not found"}), 404
+                    user_elo = user_row["elo"]
+                    elo_delta = compute_elo_change(user_elo, puzzle_elo, correct)
+                    new_elo = max(100, user_elo + elo_delta)
 
-                connection.execute(
-                    "INSERT OR REPLACE INTO user_puzzle_attempts (user_id, puzzle_id, correct) VALUES (?, ?, ?)",
-                    (user_id, puzzle_id, 1 if correct else 0),
-                )
-                connection.execute("UPDATE users SET elo = ? WHERE id = ?", (new_elo, user_id))
-                cursor = connection.execute("SELECT elo FROM users WHERE id = ?", (user_id,))
-                updated_row = cursor.fetchone()
-            payload["elo"] = updated_row["elo"]
-            payload["eloChange"] = elo_delta
+                    connection.execute(
+                        "INSERT INTO user_puzzle_attempts (user_id, puzzle_id, correct) VALUES (?, ?, ?)",
+                        (user_id, puzzle_id, 1 if correct else 0),
+                    )
+                    connection.execute("UPDATE users SET elo = ? WHERE id = ?", (new_elo, user_id))
+                    cursor = connection.execute("SELECT elo FROM users WHERE id = ?", (user_id,))
+                    updated_row = cursor.fetchone()
+                    payload["elo"] = updated_row["elo"]
+                    payload["eloChange"] = elo_delta
         except sqlite3.IntegrityError:
             return jsonify({"error": "invalid puzzle_id"}), 400
 
