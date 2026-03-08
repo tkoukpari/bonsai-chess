@@ -22,14 +22,22 @@ def parse_expected_moves(pgn: str) -> list[str]:
     return moves
 
 
+def _normalize_piece_letter(san: str) -> str:
+    """Capitalize piece letter if user typed lowercase (e.g. nf3 -> Nf3, kxd4 -> Kxd4)."""
+    if not san or san[0] not in "kqrbn":
+        return san
+    return san[0].upper() + san[1:]
+
+
 def process_user_moves(moves: list[str]) -> list[str]:
     """
     Process user move inputs before validation.
 
     Override this function to add your own logic (e.g. normalize notation,
-    strip suffixes, accept alternatives). Default: trim whitespace.
+    strip suffixes, accept alternatives). Default: trim whitespace and
+    accept lowercase piece letters (nf3, kxd4, etc.).
     """
-    return [m.strip() for m in moves if m.strip()]
+    return [_normalize_piece_letter(m.strip()) for m in moves if m.strip()]
 
 
 def validate_solution(fen: str, expected_pgn: str, user_moves: list[str]) -> tuple[bool, str | None]:
@@ -56,6 +64,8 @@ def validate_solution(fen: str, expected_pgn: str, user_moves: list[str]) -> tup
         try:
             user_move = board.parse_san(user_san)
         except chess.InvalidMoveError:
+            return False, f"Invalid syntax at move {i + 1}: \"{user_san}\""
+        except chess.IllegalMoveError:
             return False, f"Invalid move at move {i + 1}: \"{user_san}\""
         except chess.AmbiguousMoveError:
             return False, f"Ambiguous move at move {i + 1}: \"{user_san}\""

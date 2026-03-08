@@ -34,13 +34,15 @@ struct ContentView: View {
     @State private var position: Position?
     @State private var moveInputs: [String] = []
     @State private var feedback: String = ""
-    @State private var feedbackColor: Color = .primary
     @State private var menuVisible = false
     @State private var loading = false
     @State private var loadError: String?
     @State private var isAnimatingSolution = false
     @State private var displayPosition: Position?
     @State private var animatingMove: AnimatingMove?
+    @State private var pieceTransitions: [PieceTransition]?
+    @State private var boardTransitionProgress: CGFloat = 1
+    @FocusState private var focusedInputIndex: Int?
 
     private var parsedMoves: [ParsedMove] {
         guard let moves = expectedMoves, !moves.isEmpty else { return [] }
@@ -63,12 +65,12 @@ struct ContentView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
-                    if loading {
+                    if loading && position == nil {
                         ProgressView("Loading puzzle…")
                             .padding()
                     } else if let error = loadError {
                         Text(error)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(.primary)
                             .multilineTextAlignment(.center)
                             .padding()
                         Button("Retry") { fetchPuzzle() }
@@ -76,15 +78,18 @@ struct ContentView: View {
                     } else if let position {
                         ChessBoardView(
                             position: isAnimatingSolution ? (displayPosition ?? position) : position,
-                            animatingMove: animatingMove
+                            animatingMove: animatingMove,
+                            pieceTransitions: pieceTransitions,
+                            transitionProgress: boardTransitionProgress
                         )
                         .frame(width: 400, height: 400)
+                        .animation(.easeInOut(duration: 0.5), value: boardTransitionProgress)
                     } else if puzzleFEN != nil {
                         Text("Invalid FEN")
                             .foregroundStyle(.secondary)
                     }
 
-                    if loadError == nil && !loading && expectedMoves != nil {
+                    if loadError == nil && (expectedMoves != nil || position != nil) {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(toPlayLabel)
                                 .font(.subheadline)
@@ -100,6 +105,7 @@ struct ContentView: View {
                                             .textFieldStyle(.roundedBorder)
                                             .autocapitalization(.none)
                                             .autocorrectionDisabled()
+                                            .focused($focusedInputIndex, equals: whiteIndex)
                                     } else {
                                         Color.clear
                                             .frame(maxWidth: .infinity)
@@ -110,6 +116,7 @@ struct ContentView: View {
                                             .textFieldStyle(.roundedBorder)
                                             .autocapitalization(.none)
                                             .autocorrectionDisabled()
+                                            .focused($focusedInputIndex, equals: blackIndex)
                                     } else {
                                         Color.clear
                                             .frame(maxWidth: .infinity)
@@ -120,6 +127,7 @@ struct ContentView: View {
                         }
                     }
                     .padding(.horizontal)
+                    .animation(.easeInOut(duration: 0.35), value: currentPuzzleId)
 
                         Button("Check answer") {
                             checkAnswer()
@@ -128,7 +136,7 @@ struct ContentView: View {
 
                         if !feedback.isEmpty {
                             Text(feedback)
-                                .foregroundStyle(feedbackColor)
+                                .foregroundStyle(.primary)
                                 .multilineTextAlignment(.center)
                                 .padding()
                         }
@@ -178,6 +186,13 @@ struct ContentView: View {
                     fetchPuzzle()
                 }
             }
+            .onChange(of: currentPuzzleId) {
+                if currentPuzzleId != nil && !moveInputs.isEmpty {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        focusedInputIndex = 0
+                    }
+                }
+            }
         }
     }
 
@@ -203,6 +218,55 @@ struct ContentView: View {
             }
         }
         return moves
+    }
+
+    private static func piecesInPosition(_ position: Position) -> [(Square, Piece)] {
+        var result: [(Square, Piece)] = []
+        for rank in 1...8 {
+            for file in Square.File.allCases {
+                let square = Square("\(file.rawValue)\(rank)")
+                if let piece = position.piece(at: square) {
+                    result.append((square, piece))
+                }
+            }
+        }
+        return result
+    }
+
+    private static func pieceMatches(_ a: Piece, _ b: Piece) -> Bool {
+        a.kind == b.kind && a.color == b.color
+    }
+
+    private static func squareDistance(_ a: Square, _ b: Square) -> Int {
+        let fd = abs(a.file.number - b.file.number)
+        let rd = abs(a.rank.value - b.rank.value)
+        return fd * fd + rd * rd
+    }
+
+    private static func buildPieceTransitions(from oldPos: Position, to newPos: Position) -> [PieceTransition] {
+        var oldPieces = piecesInPosition(oldPos)
+        let newPieces = piecesInPosition(newPos)
+        var transitions: [PieceTransition] = []
+
+        for (toSquare, newPiece) in newPieces {
+            var bestIndex: Int?
+            var bestDist = Int.max
+            for (i, (fromSquare, oldPiece)) in oldPieces.enumerated() {
+                guard pieceMatches(oldPiece, newPiece) else { continue }
+                let d = squareDistance(fromSquare, toSquare)
+                if d < bestDist {
+                    bestDist = d
+                    bestIndex = i
+                }
+            }
+            if let i = bestIndex {
+                let (fromSquare, _) = oldPieces.remove(at: i)
+                transitions.append(PieceTransition(from: fromSquare, to: toSquare, piece: newPiece))
+            } else {
+                transitions.append(PieceTransition(from: nil, to: toSquare, piece: newPiece))
+            }
+        }
+        return transitions
     }
 
     private static func buildMoveRows(_ parsed: [ParsedMove]) -> [MoveRow] {
@@ -249,6 +313,8 @@ struct ContentView: View {
                 }
                 do {
                     let puzzle = try JSONDecoder().decode(PuzzleResponse.self, from: data)
+                    let oldPosition = position
+
                     currentPuzzleId = puzzle.id
                     puzzleFEN = puzzle.fen
                     expectedMoves = puzzle.expectedMoves
@@ -258,6 +324,20 @@ struct ContentView: View {
                     displayPosition = nil
                     animatingMove = nil
                     loadPosition()
+
+                    if let prev = oldPosition, let newPos = position {
+                        pieceTransitions = Self.buildPieceTransitions(from: prev, to: newPos)
+                        boardTransitionProgress = 0
+                        withAnimation(.easeInOut(duration: 0.55)) {
+                            boardTransitionProgress = 1
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            pieceTransitions = nil
+                        }
+                    } else {
+                        pieceTransitions = nil
+                        boardTransitionProgress = 1
+                    }
                 } catch {
                     loadError = "Invalid response: \(error.localizedDescription)"
                 }
@@ -285,8 +365,7 @@ struct ContentView: View {
         guard let fen = puzzleFEN,
               let startPosition = Position(fen: fen),
               let puzzleId = currentPuzzleId else {
-            feedback = "Invalid puzzle position."
-            feedbackColor = .red
+                    feedback = "Invalid puzzle position."
             return
         }
 
@@ -298,21 +377,19 @@ struct ContentView: View {
             guard let result = await session.submitPuzzleSolution(puzzleId: puzzleId, moves: userMoves) else {
                 await MainActor.run {
                     feedback = "Cannot reach server. Is it running at \(UserSession.serverURL)?"
-                    feedbackColor = .red
+                }
+                return
+            }
+
+            guard result.correct else {
+                await MainActor.run {
+                    feedback = result.error ?? "Incorrect. Try again."
                 }
                 return
             }
 
             await MainActor.run {
-                if result.correct {
-                    feedback = "Correct! Well done."
-                    feedbackColor = .green
-                } else {
-                    feedback = result.error ?? "Incorrect. Try again."
-                    feedbackColor = .red
-                    return
-                }
-
+                feedback = "Correct! Well done."
                 isAnimatingSolution = true
                 displayPosition = startPosition
                 animatingMove = nil
@@ -320,16 +397,17 @@ struct ContentView: View {
 
             var pos = startPosition
             for (i, san) in expectedSANs.enumerated() {
-                guard let move = Move(san: san, position: pos),
-                      let piece = pos.piece(at: move.start) else { break }
+                guard let move = Move(san: san, position: pos) else { break }
+                var board = Board(position: pos)
+                guard board.move(pieceAt: move.start, to: move.end) != nil else { break }
+                let newPos = board.position
+                let piece = newPos.piece(at: move.end) ?? pos.piece(at: move.start)!
                 await MainActor.run {
                     displayPosition = pos
                     animatingMove = AnimatingMove(start: move.start, end: move.end, piece: piece)
                 }
                 try? await Task.sleep(nanoseconds: 600_000_000)
-                var board = Board(position: pos)
-                _ = board.move(pieceAt: move.start, to: move.end)
-                pos = board.position
+                pos = newPos
                 await MainActor.run {
                     displayPosition = pos
                     animatingMove = nil

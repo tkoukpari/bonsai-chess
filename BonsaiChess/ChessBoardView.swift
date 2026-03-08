@@ -12,9 +12,17 @@ struct AnimatingMove {
     let piece: Piece
 }
 
+struct PieceTransition {
+    let from: Square?
+    let to: Square
+    let piece: Piece
+}
+
 struct ChessBoardView: View {
     let position: Position
     var animatingMove: AnimatingMove?
+    var pieceTransitions: [PieceTransition]?
+    var transitionProgress: CGFloat = 1
 
     @State private var moveAnimationProgress: CGFloat = 0
 
@@ -35,23 +43,26 @@ struct ChessBoardView: View {
                     ForEach(Array(ranksTopToBottom.enumerated()), id: \.offset) { _, rank in
                         HStack(spacing: 0) {
                             ForEach(Square.File.allCases, id: \.self) { file in
-                                let square = Square("\(file.rawValue)\(rank)")
-                                let piece = position.piece(at: square)
-                                let hidePiece = animatingMove.map { $0.start.file == square.file && $0.start.rank == square.rank } ?? false
-                                squareView(square: square, piece: hidePiece ? nil : piece, pieceSize: pieceSize)
-                                    .frame(width: cellSize, height: cellSize)
+                                squareViewForTransition(
+                                    rank: rank,
+                                    file: file,
+                                    cellSize: cellSize,
+                                    pieceSize: pieceSize
+                                )
                             }
                         }
                     }
                 }
 
-                if let anim = animatingMove {
+                if let transitions = pieceTransitions {
+                    pieceTransitionOverlay(transitions: transitions, cellSize: cellSize, pieceSize: pieceSize)
+                } else if let anim = animatingMove {
                     animatingPieceOverlay(anim: anim, cellSize: cellSize, pieceSize: pieceSize)
                 }
             }
             .frame(width: side, height: side)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(borderColor, lineWidth: 2))
+            .clipShape(Rectangle())
+            .overlay(Rectangle().stroke(borderColor, lineWidth: 2))
         }
         .aspectRatio(1, contentMode: .fit)
     }
@@ -84,10 +95,52 @@ struct ChessBoardView: View {
             }
     }
 
+    private func boardCenter(cellSize: CGFloat) -> (x: CGFloat, y: CGFloat) {
+        (4.5 * cellSize, 4.5 * cellSize)
+    }
+
     private func squareCenter(_ square: Square, cellSize: CGFloat) -> (x: CGFloat, y: CGFloat) {
         let fileIndex = CGFloat(Array(Square.File.allCases).firstIndex(where: { $0.rawValue == square.file.rawValue }) ?? 0)
         let rowIndex = CGFloat(ranksTopToBottom.firstIndex(of: square.rank.value) ?? 0)
         return ((fileIndex + 0.5) * cellSize, (rowIndex + 0.5) * cellSize)
+    }
+
+    private func pieceTransitionOverlay(transitions: [PieceTransition], cellSize: CGFloat, pieceSize: CGFloat) -> some View {
+        let center = boardCenter(cellSize: cellSize)
+        return ZStack(alignment: .topLeading) {
+            ForEach(Array(transitions.enumerated()), id: \.offset) { _, t in
+                pieceTransitionItem(t: t, center: center, cellSize: cellSize, pieceSize: pieceSize)
+            }
+        }
+    }
+
+    private func pieceTransitionItem(t: PieceTransition, center: (x: CGFloat, y: CGFloat), cellSize: CGFloat, pieceSize: CGFloat) -> some View {
+        let start = t.from.map { squareCenter($0, cellSize: cellSize) } ?? center
+        let end = squareCenter(t.to, cellSize: cellSize)
+        let x = start.x + (end.x - start.x) * transitionProgress
+        let y = start.y + (end.y - start.y) * transitionProgress
+        return Image(pieceImageName(t.piece))
+            .renderingMode(.original)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: pieceSize, height: pieceSize)
+            .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
+            .position(x: x, y: y)
+    }
+
+    private func squareViewForTransition(rank: Int, file: Square.File, cellSize: CGFloat, pieceSize: CGFloat) -> some View {
+        let square = Square("\(file.rawValue)\(rank)")
+        let piece: Piece?
+        let hidePiece: Bool
+        if pieceTransitions != nil {
+            piece = nil
+            hidePiece = false
+        } else {
+            piece = position.piece(at: square)
+            hidePiece = animatingMove.map { $0.start.file == square.file && $0.start.rank == square.rank } ?? false
+        }
+        return squareView(square: square, piece: hidePiece ? nil : piece, pieceSize: pieceSize)
+            .frame(width: cellSize, height: cellSize)
     }
 
     @ViewBuilder
