@@ -269,7 +269,7 @@ def get_puzzle():
     if request.method == "OPTIONS":
         return add_cors_headers(make_response("", 200))
     user_id = get_current_user_id_from_token()
-    elo_range = request.args.get("elo_range", 200, type=int)
+    elo_range = request.args.get("elo_range", 100, type=int)
 
     with get_database_connection() as connection:
         if user_id:
@@ -343,7 +343,7 @@ def submit_puzzle_result():
     if puzzle_row is None:
         return jsonify({"error": "puzzle not found"}), 404
 
-    correct, error = validate_solution(
+    correct, error, elo_countable = validate_solution(
         puzzle_row["fen"], puzzle_row["expected_moves"], moves
     )
     payload = {"correct": correct}
@@ -351,7 +351,7 @@ def submit_puzzle_result():
         payload["error"] = error
 
     user_id = get_current_user_id_from_token()
-    if user_id:
+    if user_id and elo_countable:
         try:
             with get_database_connection() as connection:
                 attempt_row = connection.execute(

@@ -40,8 +40,13 @@ struct ContentView: View {
     @State private var isAnimatingSolution = false
     @State private var displayPosition: Position?
     @State private var animatingMove: AnimatingMove?
-    @State private var centerTransition: CenterTransitionState?
+    enum TransitionPhase { case fadeOut, fadeIn }
+    @State private var transitionPhase: TransitionPhase?
+    @State private var transitionFromPosition: Position?
+    @State private var transitionToPosition: Position?
     @State private var boardTransitionProgress: CGFloat = 1
+    @State private var pendingPuzzle: (id: Int, fen: String, moves: String)?
+    @State private var checkAnswerLocked = false
     @FocusState private var focusedInputIndex: Int?
 
     private var parsedMoves: [ParsedMove] {
@@ -76,14 +81,7 @@ struct ContentView: View {
                         Button("Retry") { fetchPuzzle() }
                             .buttonStyle(.bordered)
                     } else if let position {
-                        ChessBoardView(
-                            position: isAnimatingSolution ? (displayPosition ?? position) : position,
-                            animatingMove: animatingMove,
-                            centerTransition: centerTransition,
-                            transitionProgress: boardTransitionProgress
-                        )
-                        .frame(width: 400, height: 400)
-                        .animation(.easeInOut(duration: 0.7), value: boardTransitionProgress)
+                        transitionBoardView(position: position)
                     } else if puzzleFEN != nil {
                         Text("Invalid FEN")
                             .foregroundStyle(.secondary)
@@ -133,6 +131,7 @@ struct ContentView: View {
                             checkAnswer()
                         }
                         .buttonStyle(.borderedProminent)
+                        .disabled(checkAnswerLocked)
 
                         if !feedback.isEmpty {
                             Text(feedback)
@@ -196,6 +195,33 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder
+    private func transitionBoardView(position: Position) -> some View {
+        let (displayPos, opacity): (Position, Double) = {
+            if let phase = transitionPhase {
+                switch phase {
+                case .fadeOut:
+                    if let from = transitionFromPosition {
+                        return (from, 1 - boardTransitionProgress)
+                    }
+                case .fadeIn:
+                    if let to = transitionToPosition {
+                        return (to, boardTransitionProgress)
+                    }
+                }
+            }
+            return (isAnimatingSolution ? (displayPosition ?? position) : position, 1)
+        }()
+        ChessBoardView(
+            position: displayPos,
+            animatingMove: transitionPhase == nil ? animatingMove : nil,
+            pieceOpacity: opacity
+        )
+        .frame(width: 400, height: 400)
+        .animation(.easeInOut(duration: 0.4), value: boardTransitionProgress)
+        .animation(.easeInOut(duration: 0.4), value: transitionPhase)
+    }
+
     private static func parsePGN(_ pgn: String) -> [ParsedMove] {
         let tokens = pgn.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
         var moves: [ParsedMove] = []
@@ -220,28 +246,6 @@ struct ContentView: View {
         return moves
     }
 
-    private static func piecesInPosition(_ position: Position) -> [(Square, Piece)] {
-        var result: [(Square, Piece)] = []
-        for rank in 1...8 {
-            for file in Square.File.allCases {
-                let square = Square("\(file.rawValue)\(rank)")
-                if let piece = position.piece(at: square) {
-                    result.append((square, piece))
-                }
-            }
-        }
-        return result
-    }
-
-    private static func buildCenterTransition(from oldPos: Position, to newPos: Position) -> CenterTransitionState {
-        let oldPieces = piecesInPosition(oldPos)
-        let newPieces = piecesInPosition(newPos)
-        return CenterTransitionState(
-            oldToCenter: oldPieces.map { ($0.0, $0.1) },
-            centerToNew: newPieces.map { ($0.0, $0.1) }
-        )
-    }
-
     private static func buildMoveRows(_ parsed: [ParsedMove]) -> [MoveRow] {
         var inputIndex = 0
         var rowsByNumber: [Int: (white: Int?, black: Int?)] = [:]
@@ -260,21 +264,26 @@ struct ContentView: View {
         }
     }
 
-    private func fetchPuzzle() {
-        loading = true
+    private func fetchPuzzle(transitionFrom finalPosition: Position? = nil) {
+        let isTransition = finalPosition != nil
+        if !isTransition {
+            loading = true
+        }
         loadError = nil
         guard let url = URL(string: UserSession.serverURL + "/api/puzzle") else {
             loadError = "Invalid server URL"
             loading = false
+            if isTransition { checkAnswerLocked = false }
             return
         }
         var request = URLRequest(url: url)
         session.addAuthHeader(to: &request)
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
-                loading = false
+                if !isTransition { loading = false }
                 if let error = error {
                     loadError = "Cannot reach server."
+                    if isTransition { checkAnswerLocked = false }
                     return
                 }
                 guard let data = data,
@@ -282,40 +291,73 @@ struct ContentView: View {
                       (200...299).contains(httpResponse.statusCode) else {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
                     loadError = statusCode > 0 ? "Server error (\(statusCode))" : "Server error or no data. Is the puzzle server running at \(UserSession.serverURL)?"
+                    if isTransition { checkAnswerLocked = false }
                     return
                 }
                 do {
                     let puzzle = try JSONDecoder().decode(PuzzleResponse.self, from: data)
-                    let oldPosition = position
+                    let newPos = Position(fen: puzzle.fen)
 
-                    currentPuzzleId = puzzle.id
-                    puzzleFEN = puzzle.fen
-                    expectedMoves = puzzle.expectedMoves
-                    moveInputs = Array(repeating: "", count: Self.parsePGN(puzzle.expectedMoves).count)
-                    feedback = ""
-                    isAnimatingSolution = false
-                    displayPosition = nil
-                    animatingMove = nil
-                    loadPosition()
-
-                    if let prev = oldPosition, let newPos = position {
-                        centerTransition = Self.buildCenterTransition(from: prev, to: newPos)
+                    if isTransition, let from = finalPosition {
+                        pendingPuzzle = (puzzle.id, puzzle.fen, puzzle.expectedMoves)
+                        transitionFromPosition = from
+                        transitionToPosition = newPos
+                        transitionPhase = .fadeOut
+                        isAnimatingSolution = false
+                        displayPosition = nil
+                        animatingMove = nil
                         boardTransitionProgress = 0
-                        withAnimation(.easeInOut(duration: 0.7)) {
+                        withAnimation(.easeInOut(duration: 0.4)) {
                             boardTransitionProgress = 1
                         }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
-                            centerTransition = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                            applyPendingPuzzleAndFadeIn()
                         }
                     } else {
-                        centerTransition = nil
+                        currentPuzzleId = puzzle.id
+                        puzzleFEN = puzzle.fen
+                        expectedMoves = puzzle.expectedMoves
+                        moveInputs = Array(repeating: "", count: Self.parsePGN(puzzle.expectedMoves).count)
+                        feedback = ""
+                        animatingMove = nil
+                        loadPosition()
+                        transitionPhase = nil
+                        transitionFromPosition = nil
+                        transitionToPosition = nil
+                        pendingPuzzle = nil
                         boardTransitionProgress = 1
+                        isAnimatingSolution = false
+                        displayPosition = nil
                     }
                 } catch {
                     loadError = "Invalid response: \(error.localizedDescription)"
+                    if isTransition { checkAnswerLocked = false }
                 }
             }
         }.resume()
+    }
+
+    private func applyPendingPuzzleAndFadeIn() {
+        guard let pending = pendingPuzzle else { return }
+        currentPuzzleId = pending.id
+        puzzleFEN = pending.fen
+        expectedMoves = pending.moves
+        moveInputs = Array(repeating: "", count: Self.parsePGN(pending.moves).count)
+        feedback = ""
+        loadPosition()
+        transitionFromPosition = nil
+        transitionToPosition = position
+        transitionPhase = .fadeIn
+        pendingPuzzle = nil
+        boardTransitionProgress = 0
+        withAnimation(.easeInOut(duration: 0.4)) {
+            boardTransitionProgress = 1
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            transitionPhase = nil
+            transitionToPosition = nil
+            checkAnswerLocked = false
+        }
     }
 
     private func loadPosition() {
@@ -342,6 +384,8 @@ struct ContentView: View {
             return
         }
 
+        checkAnswerLocked = true
+
         let userMoves = moveInputs
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -350,6 +394,7 @@ struct ContentView: View {
             guard let result = await session.submitPuzzleSolution(puzzleId: puzzleId, moves: userMoves) else {
                 await MainActor.run {
                     feedback = "Cannot reach server."
+                    checkAnswerLocked = false
                 }
                 return
             }
@@ -357,6 +402,7 @@ struct ContentView: View {
             guard result.correct else {
                 await MainActor.run {
                     feedback = result.error ?? "Incorrect. Try again."
+                    checkAnswerLocked = false
                 }
                 return
             }
@@ -390,8 +436,9 @@ struct ContentView: View {
                 }
             }
             try? await Task.sleep(nanoseconds: 1_500_000_000)
+            let finalPos = pos
             await MainActor.run {
-                fetchPuzzle()
+                fetchPuzzle(transitionFrom: finalPos)
             }
         }
     }
