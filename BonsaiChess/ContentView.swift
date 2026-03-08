@@ -40,7 +40,7 @@ struct ContentView: View {
     @State private var isAnimatingSolution = false
     @State private var displayPosition: Position?
     @State private var animatingMove: AnimatingMove?
-    @State private var pieceTransitions: [PieceTransition]?
+    @State private var centerTransition: CenterTransitionState?
     @State private var boardTransitionProgress: CGFloat = 1
     @FocusState private var focusedInputIndex: Int?
 
@@ -79,11 +79,11 @@ struct ContentView: View {
                         ChessBoardView(
                             position: isAnimatingSolution ? (displayPosition ?? position) : position,
                             animatingMove: animatingMove,
-                            pieceTransitions: pieceTransitions,
+                            centerTransition: centerTransition,
                             transitionProgress: boardTransitionProgress
                         )
                         .frame(width: 400, height: 400)
-                        .animation(.easeInOut(duration: 0.5), value: boardTransitionProgress)
+                        .animation(.easeInOut(duration: 0.7), value: boardTransitionProgress)
                     } else if puzzleFEN != nil {
                         Text("Invalid FEN")
                             .foregroundStyle(.secondary)
@@ -233,40 +233,13 @@ struct ContentView: View {
         return result
     }
 
-    private static func pieceMatches(_ a: Piece, _ b: Piece) -> Bool {
-        a.kind == b.kind && a.color == b.color
-    }
-
-    private static func squareDistance(_ a: Square, _ b: Square) -> Int {
-        let fd = abs(a.file.number - b.file.number)
-        let rd = abs(a.rank.value - b.rank.value)
-        return fd * fd + rd * rd
-    }
-
-    private static func buildPieceTransitions(from oldPos: Position, to newPos: Position) -> [PieceTransition] {
-        var oldPieces = piecesInPosition(oldPos)
+    private static func buildCenterTransition(from oldPos: Position, to newPos: Position) -> CenterTransitionState {
+        let oldPieces = piecesInPosition(oldPos)
         let newPieces = piecesInPosition(newPos)
-        var transitions: [PieceTransition] = []
-
-        for (toSquare, newPiece) in newPieces {
-            var bestIndex: Int?
-            var bestDist = Int.max
-            for (i, (fromSquare, oldPiece)) in oldPieces.enumerated() {
-                guard pieceMatches(oldPiece, newPiece) else { continue }
-                let d = squareDistance(fromSquare, toSquare)
-                if d < bestDist {
-                    bestDist = d
-                    bestIndex = i
-                }
-            }
-            if let i = bestIndex {
-                let (fromSquare, _) = oldPieces.remove(at: i)
-                transitions.append(PieceTransition(from: fromSquare, to: toSquare, piece: newPiece))
-            } else {
-                transitions.append(PieceTransition(from: nil, to: toSquare, piece: newPiece))
-            }
-        }
-        return transitions
+        return CenterTransitionState(
+            oldToCenter: oldPieces.map { ($0.0, $0.1) },
+            centerToNew: newPieces.map { ($0.0, $0.1) }
+        )
     }
 
     private static func buildMoveRows(_ parsed: [ParsedMove]) -> [MoveRow] {
@@ -301,7 +274,7 @@ struct ContentView: View {
             DispatchQueue.main.async {
                 loading = false
                 if let error = error {
-                    loadError = "Cannot reach server: \(error.localizedDescription). Is the puzzle server running at \(UserSession.serverURL)?"
+                    loadError = "Cannot reach server."
                     return
                 }
                 guard let data = data,
@@ -326,16 +299,16 @@ struct ContentView: View {
                     loadPosition()
 
                     if let prev = oldPosition, let newPos = position {
-                        pieceTransitions = Self.buildPieceTransitions(from: prev, to: newPos)
+                        centerTransition = Self.buildCenterTransition(from: prev, to: newPos)
                         boardTransitionProgress = 0
-                        withAnimation(.easeInOut(duration: 0.55)) {
+                        withAnimation(.easeInOut(duration: 0.7)) {
                             boardTransitionProgress = 1
                         }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                            pieceTransitions = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
+                            centerTransition = nil
                         }
                     } else {
-                        pieceTransitions = nil
+                        centerTransition = nil
                         boardTransitionProgress = 1
                     }
                 } catch {
@@ -376,7 +349,7 @@ struct ContentView: View {
         Task {
             guard let result = await session.submitPuzzleSolution(puzzleId: puzzleId, moves: userMoves) else {
                 await MainActor.run {
-                    feedback = "Cannot reach server. Is it running at \(UserSession.serverURL)?"
+                    feedback = "Cannot reach server."
                 }
                 return
             }

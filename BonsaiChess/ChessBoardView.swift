@@ -18,10 +18,15 @@ struct PieceTransition {
     let piece: Piece
 }
 
+struct CenterTransitionState {
+    let oldToCenter: [(square: Square, piece: Piece)]
+    let centerToNew: [(square: Square, piece: Piece)]
+}
+
 struct ChessBoardView: View {
     let position: Position
     var animatingMove: AnimatingMove?
-    var pieceTransitions: [PieceTransition]?
+    var centerTransition: CenterTransitionState?
     var transitionProgress: CGFloat = 1
 
     @State private var moveAnimationProgress: CGFloat = 0
@@ -54,8 +59,8 @@ struct ChessBoardView: View {
                     }
                 }
 
-                if let transitions = pieceTransitions {
-                    pieceTransitionOverlay(transitions: transitions, cellSize: cellSize, pieceSize: pieceSize)
+                if let ct = centerTransition {
+                    centerTransitionOverlay(ct: ct, cellSize: cellSize, pieceSize: pieceSize)
                 } else if let anim = animatingMove {
                     animatingPieceOverlay(anim: anim, cellSize: cellSize, pieceSize: pieceSize)
                 }
@@ -105,34 +110,46 @@ struct ChessBoardView: View {
         return ((fileIndex + 0.5) * cellSize, (rowIndex + 0.5) * cellSize)
     }
 
-    private func pieceTransitionOverlay(transitions: [PieceTransition], cellSize: CGFloat, pieceSize: CGFloat) -> some View {
+    private func centerTransitionOverlay(ct: CenterTransitionState, cellSize: CGFloat, pieceSize: CGFloat) -> some View {
         let center = boardCenter(cellSize: cellSize)
         return ZStack(alignment: .topLeading) {
-            ForEach(Array(transitions.enumerated()), id: \.offset) { _, t in
-                pieceTransitionItem(t: t, center: center, cellSize: cellSize, pieceSize: pieceSize)
+            if transitionProgress < 0.5 {
+                let phaseProgress = transitionProgress * 2
+                ForEach(Array(ct.oldToCenter.enumerated()), id: \.offset) { _, item in
+                    let start = squareCenter(item.square, cellSize: cellSize)
+                    let x = start.x + (center.x - start.x) * phaseProgress
+                    let y = start.y + (center.y - start.y) * phaseProgress
+                    Image(pieceImageName(item.piece))
+                        .renderingMode(.original)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: pieceSize, height: pieceSize)
+                        .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
+                        .position(x: x, y: y)
+                }
+            } else {
+                let phaseProgress = (transitionProgress - 0.5) * 2
+                ForEach(Array(ct.centerToNew.enumerated()), id: \.offset) { _, item in
+                    let end = squareCenter(item.square, cellSize: cellSize)
+                    let x = center.x + (end.x - center.x) * phaseProgress
+                    let y = center.y + (end.y - center.y) * phaseProgress
+                    Image(pieceImageName(item.piece))
+                        .renderingMode(.original)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: pieceSize, height: pieceSize)
+                        .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
+                        .position(x: x, y: y)
+                }
             }
         }
-    }
-
-    private func pieceTransitionItem(t: PieceTransition, center: (x: CGFloat, y: CGFloat), cellSize: CGFloat, pieceSize: CGFloat) -> some View {
-        let start = t.from.map { squareCenter($0, cellSize: cellSize) } ?? center
-        let end = squareCenter(t.to, cellSize: cellSize)
-        let x = start.x + (end.x - start.x) * transitionProgress
-        let y = start.y + (end.y - start.y) * transitionProgress
-        return Image(pieceImageName(t.piece))
-            .renderingMode(.original)
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .frame(width: pieceSize, height: pieceSize)
-            .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
-            .position(x: x, y: y)
     }
 
     private func squareViewForTransition(rank: Int, file: Square.File, cellSize: CGFloat, pieceSize: CGFloat) -> some View {
         let square = Square("\(file.rawValue)\(rank)")
         let piece: Piece?
         let hidePiece: Bool
-        if pieceTransitions != nil {
+        if centerTransition != nil {
             piece = nil
             hidePiece = false
         } else {

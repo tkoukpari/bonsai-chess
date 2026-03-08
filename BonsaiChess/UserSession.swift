@@ -103,7 +103,7 @@ final class UserSession: ObservableObject {
             }
             saveSession(token: auth.token, user: auth.user)
         } catch {
-            self.error = "Cannot reach server: \(error.localizedDescription)"
+            self.error = "Cannot reach server."
         }
     }
 
@@ -151,7 +151,7 @@ final class UserSession: ObservableObject {
             }
             saveSession(token: auth.token, user: auth.user)
         } catch {
-            self.error = "Cannot reach server: \(error.localizedDescription)"
+            self.error = "Cannot reach server."
         }
     }
 
