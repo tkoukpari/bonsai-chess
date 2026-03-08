@@ -322,7 +322,6 @@ def get_puzzle():
 
 @app.route("/api/puzzle/result", methods=["POST", "OPTIONS"])
 def submit_puzzle_result():
-    """Validate solution (server-side) and optionally update ELO if authenticated."""
     if request.method == "OPTIONS":
         return add_cors_headers(make_response("", 200))
     body = request.get_json()

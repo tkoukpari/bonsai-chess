@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Legacy seed data. Prefer import_lichess_puzzles.py for Lichess-sourced puzzles:
-    python3 import_lichess_puzzles.py --max-puzzles 500
-"""
 
 import sqlite3
 from pathlib import Path

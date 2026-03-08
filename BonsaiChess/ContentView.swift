@@ -25,6 +25,8 @@ private struct MoveRow {
     let blackInputIndex: Int?
 }
 
+private enum TransitionPhase { case fadeOut, fadeIn }
+
 struct ContentView: View {
     @EnvironmentObject var session: UserSession
 
@@ -40,7 +42,6 @@ struct ContentView: View {
     @State private var isAnimatingSolution = false
     @State private var displayPosition: Position?
     @State private var animatingMove: AnimatingMove?
-    enum TransitionPhase { case fadeOut, fadeIn }
     @State private var transitionPhase: TransitionPhase?
     @State private var transitionFromPosition: Position?
     @State private var transitionToPosition: Position?
@@ -94,31 +95,32 @@ struct ContentView: View {
                                 .foregroundStyle(.secondary)
                             VStack(alignment: .leading, spacing: 12) {
                                 ForEach(Array(moveRows.enumerated()), id: \.offset) { _, row in
-                                HStack(spacing: 12) {
-                                    Text("\(row.moveNumber)")
-                                        .foregroundStyle(.secondary)
-                                        .frame(width: 24, alignment: .trailing)
-                                    if let whiteIndex = row.whiteInputIndex {
-                                        TextField("", text: bindingForMove(at: whiteIndex))
-                                            .textFieldStyle(.roundedBorder)
-                                            .autocapitalization(.none)
-                                            .autocorrectionDisabled()
-                                            .focused($focusedInputIndex, equals: whiteIndex)
-                                    } else {
-                                        Color.clear
-                                            .frame(maxWidth: .infinity)
-                                            .padding(8)
-                                    }
-                                    if let blackIndex = row.blackInputIndex {
-                                        TextField("", text: bindingForMove(at: blackIndex))
-                                            .textFieldStyle(.roundedBorder)
-                                            .autocapitalization(.none)
-                                            .autocorrectionDisabled()
-                                            .focused($focusedInputIndex, equals: blackIndex)
-                                    } else {
-                                        Color.clear
-                                            .frame(maxWidth: .infinity)
-                                            .padding(8)
+                                    HStack(spacing: 12) {
+                                        Text("\(row.moveNumber)")
+                                            .foregroundStyle(.secondary)
+                                            .frame(width: 24, alignment: .trailing)
+                                        if let whiteIndex = row.whiteInputIndex {
+                                            TextField("", text: bindingForMove(at: whiteIndex))
+                                                .textFieldStyle(.roundedBorder)
+                                                .autocapitalization(.none)
+                                                .autocorrectionDisabled()
+                                                .focused($focusedInputIndex, equals: whiteIndex)
+                                        } else {
+                                            Color.clear
+                                                .frame(maxWidth: .infinity)
+                                                .padding(8)
+                                        }
+                                        if let blackIndex = row.blackInputIndex {
+                                            TextField("", text: bindingForMove(at: blackIndex))
+                                                .textFieldStyle(.roundedBorder)
+                                                .autocapitalization(.none)
+                                                .autocorrectionDisabled()
+                                                .focused($focusedInputIndex, equals: blackIndex)
+                                        } else {
+                                            Color.clear
+                                                .frame(maxWidth: .infinity)
+                                                .padding(8)
+                                        }
                                     }
                                 }
                             }
@@ -186,7 +188,7 @@ struct ContentView: View {
                 }
             }
             .onChange(of: currentPuzzleId) {
-                if currentPuzzleId != nil && !moveInputs.isEmpty {
+                if currentPuzzleId != nil {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         focusedInputIndex = 0
                     }
@@ -250,13 +252,13 @@ struct ContentView: View {
         var inputIndex = 0
         var rowsByNumber: [Int: (white: Int?, black: Int?)] = [:]
         for move in parsed {
-            var pair = rowsByNumber[move.moveNumber] ?? (nil, nil)
+            var indices = rowsByNumber[move.moveNumber] ?? (nil, nil)
             if move.isWhite {
-                pair.white = inputIndex
+                indices.white = inputIndex
             } else {
-                pair.black = inputIndex
+                indices.black = inputIndex
             }
-            rowsByNumber[move.moveNumber] = pair
+            rowsByNumber[move.moveNumber] = indices
             inputIndex += 1
         }
         return rowsByNumber.sorted(by: { $0.key < $1.key }).map {
@@ -414,21 +416,21 @@ struct ContentView: View {
                 animatingMove = nil
             }
 
-            var pos = startPosition
+            var currentPos = startPosition
             for (i, san) in expectedSANs.enumerated() {
-                guard let move = Move(san: san, position: pos) else { break }
-                var board = Board(position: pos)
+                guard let move = Move(san: san, position: currentPos) else { break }
+                var board = Board(position: currentPos)
                 guard board.move(pieceAt: move.start, to: move.end) != nil else { break }
                 let newPos = board.position
-                let piece = newPos.piece(at: move.end) ?? pos.piece(at: move.start)!
+                let piece = newPos.piece(at: move.end) ?? currentPos.piece(at: move.start)!
                 await MainActor.run {
-                    displayPosition = pos
+                    displayPosition = currentPos
                     animatingMove = AnimatingMove(start: move.start, end: move.end, piece: piece)
                 }
                 try? await Task.sleep(nanoseconds: 600_000_000)
-                pos = newPos
+                currentPos = newPos
                 await MainActor.run {
-                    displayPosition = pos
+                    displayPosition = currentPos
                     animatingMove = nil
                 }
                 if i < expectedSANs.count - 1 {
@@ -436,7 +438,7 @@ struct ContentView: View {
                 }
             }
             try? await Task.sleep(nanoseconds: 1_500_000_000)
-            let finalPos = pos
+            let finalPos = currentPos
             await MainActor.run {
                 fetchPuzzle(transitionFrom: finalPos)
             }
