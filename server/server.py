@@ -2,10 +2,8 @@
 
 import math
 import os
-import sqlite3
 from contextlib import contextmanager
 from functools import wraps
-from pathlib import Path
 
 import bcrypt
 import jwt
@@ -13,7 +11,7 @@ from flask import Flask, jsonify, make_response, request
 
 from puzzle_validation import validate_solution
 
-database_path = Path(__file__).parent / "bonsai_puzzles.db"
+DATABASE_URL = os.environ.get("DATABASE_URL")
 default_elo_rating = 1200
 elo_rating_change_factor = 32
 jwt_secret = os.environ.get("JWT_SECRET", "dev-secret-change-in-production")
@@ -24,68 +22,111 @@ app = Flask(__name__)
 
 @contextmanager
 def get_database_connection():
-    connection = sqlite3.connect(database_path)
-    connection.row_factory = sqlite3.Row
-    try:
-        yield connection
-        connection.commit()
-    finally:
-        connection.close()
+    if DATABASE_URL:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        conn = psycopg2.connect(DATABASE_URL)
+        _orig_cursor = conn.cursor
+        conn.cursor = lambda: _orig_cursor(cursor_factory=RealDictCursor)
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
+    else:
+        import sqlite3
+        from pathlib import Path
+        db_path = Path(__file__).parent / "bonsai_puzzles.db"
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def _placeholder():
+    return "%s" if DATABASE_URL else "?"
 
 
 def initialize_database():
+    ph = _placeholder()
     with get_database_connection() as connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS puzzles (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                fen TEXT NOT NULL,
-                expected_moves TEXT NOT NULL,
-                elo INTEGER NOT NULL DEFAULT 1200
+        cursor = connection.cursor()
+        if DATABASE_URL:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS puzzles (
+                    id SERIAL PRIMARY KEY,
+                    fen TEXT NOT NULL,
+                    expected_moves TEXT NOT NULL,
+                    elo INTEGER NOT NULL DEFAULT 1200
+                )
+                """
             )
-            """
-        )
-        try:
-            connection.execute("ALTER TABLE puzzles ADD COLUMN elo INTEGER NOT NULL DEFAULT 1200")
-        except sqlite3.OperationalError:
-            pass
-        connection.execute("UPDATE puzzles SET elo = 1200 WHERE elo IS NULL OR elo = 0")
-
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL UNIQUE,
-                email TEXT NOT NULL,
-                password_hash TEXT,
-                elo INTEGER NOT NULL DEFAULT 1200,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    username TEXT NOT NULL UNIQUE,
+                    email TEXT NOT NULL,
+                    password_hash BYTEA,
+                    elo INTEGER NOT NULL DEFAULT 1200,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                )
+                """
             )
-            """
-        )
-        try:
-            connection.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
-        except sqlite3.OperationalError:
-            pass
-
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS user_puzzle_attempts (
-                user_id INTEGER NOT NULL,
-                puzzle_id INTEGER NOT NULL,
-                correct INTEGER NOT NULL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (user_id, puzzle_id),
-                FOREIGN KEY (user_id) REFERENCES users(id),
-                FOREIGN KEY (puzzle_id) REFERENCES puzzles(id)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_puzzle_attempts (
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    puzzle_id INTEGER NOT NULL REFERENCES puzzles(id),
+                    correct INTEGER NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, puzzle_id)
+                )
+                """
             )
-            """
-        )
+        else:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS puzzles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    fen TEXT NOT NULL,
+                    expected_moves TEXT NOT NULL,
+                    elo INTEGER NOT NULL DEFAULT 1200
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL UNIQUE,
+                    email TEXT NOT NULL,
+                    password_hash BLOB,
+                    elo INTEGER NOT NULL DEFAULT 1200,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_puzzle_attempts (
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    puzzle_id INTEGER NOT NULL REFERENCES puzzles(id),
+                    correct INTEGER NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, puzzle_id)
+                )
+                """
+            )
 
-        cursor = connection.execute("SELECT COUNT(*) FROM puzzles")
-        if cursor.fetchone()[0] == 0:
-            connection.execute(
-                "INSERT INTO puzzles (fen, expected_moves, elo) VALUES (?, ?, ?)",
+        cursor.execute("SELECT COUNT(*) as c FROM puzzles")
+        if cursor.fetchone()["c"] == 0:
+            cursor.execute(
+                f"INSERT INTO puzzles (fen, expected_moves, elo) VALUES ({ph}, {ph}, {ph})",
                 (
                     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
                     "1. e4 e5 2. Nf3 Nc6",
@@ -138,6 +179,14 @@ def is_valid_email_address(email_address):
     return len(local_part) >= 1 and len(domain_part) >= 3 and "." in domain_part
 
 
+def _integrity_error():
+    if DATABASE_URL:
+        import psycopg2
+        return psycopg2.IntegrityError
+    import sqlite3
+    return sqlite3.IntegrityError
+
+
 @app.route("/api/auth/login", methods=["POST", "OPTIONS"])
 def login():
     if request.method == "OPTIONS":
@@ -152,15 +201,19 @@ def login():
     if not isinstance(password, str):
         return jsonify({"error": "invalid password"}), 400
 
+    ph = _placeholder()
     with get_database_connection() as connection:
-        cursor = connection.execute(
-            "SELECT id, username, email, elo, password_hash FROM users WHERE username = ?",
+        cursor = connection.cursor()
+        cursor.execute(
+            f"SELECT id, username, email, elo, password_hash FROM users WHERE username = {ph}",
             (username,),
         )
         user_row = cursor.fetchone()
     if user_row is None:
         return jsonify({"error": "invalid username or password"}), 401
     stored_password_hash = user_row["password_hash"]
+    if DATABASE_URL and isinstance(stored_password_hash, memoryview):
+        stored_password_hash = bytes(stored_password_hash)
     if not stored_password_hash or not bcrypt.checkpw(password.encode("utf-8"), stored_password_hash):
         return jsonify({"error": "invalid username or password"}), 401
 
@@ -205,10 +258,12 @@ def create_user():
 
     password_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
 
+    ph = _placeholder()
     try:
         with get_database_connection() as connection:
-            cursor = connection.execute(
-                "INSERT INTO users (username, email, password_hash, elo) VALUES (?, ?, ?, ?) RETURNING id, username, email, elo",
+            cursor = connection.cursor()
+            cursor.execute(
+                f"INSERT INTO users (username, email, password_hash, elo) VALUES ({ph}, {ph}, {ph}, {ph}) RETURNING id, username, email, elo",
                 (username, email, password_hash, default_elo_rating),
             )
             user_row = cursor.fetchone()
@@ -233,7 +288,7 @@ def create_user():
                     }
                 )
             ), 201
-    except sqlite3.IntegrityError:
+    except _integrity_error():
         return jsonify({"error": "username already taken"}), 409
     return jsonify({"error": "failed to create user"}), 500
 
@@ -243,17 +298,20 @@ def create_user():
 def get_or_delete_current_user(user_id):
     if request.method == "OPTIONS":
         return add_cors_headers(make_response("", 200))
+    ph = _placeholder()
     if request.method == "DELETE":
         with get_database_connection() as connection:
-            connection.execute("DELETE FROM user_puzzle_attempts WHERE user_id = ?", (user_id,))
-            cursor = connection.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            cursor = connection.cursor()
+            cursor.execute(f"DELETE FROM user_puzzle_attempts WHERE user_id = {ph}", (user_id,))
+            cursor.execute(f"DELETE FROM users WHERE id = {ph} RETURNING id", (user_id,))
             if cursor.rowcount == 0:
                 return jsonify({"error": "user not found"}), 404
         return add_cors_headers(make_response("", 204))
 
     with get_database_connection() as connection:
-        cursor = connection.execute(
-            "SELECT id, username, email, elo FROM users WHERE id = ?",
+        cursor = connection.cursor()
+        cursor.execute(
+            f"SELECT id, username, email, elo FROM users WHERE id = {ph}",
             (user_id,),
         )
         user_row = cursor.fetchone()
@@ -270,30 +328,32 @@ def get_puzzle():
         return add_cors_headers(make_response("", 200))
     user_id = get_current_user_id_from_token()
     elo_range = request.args.get("elo_range", 100, type=int)
+    ph = _placeholder()
 
     with get_database_connection() as connection:
+        cursor = connection.cursor()
         if user_id:
-            cursor = connection.execute("SELECT elo FROM users WHERE id = ?", (user_id,))
+            cursor.execute(f"SELECT elo FROM users WHERE id = {ph}", (user_id,))
             user_row = cursor.fetchone()
             user_elo = user_row["elo"] if user_row else default_elo_rating
-            cursor = connection.execute(
-                """
+            cursor.execute(
+                f"""
                 SELECT p.id, p.fen, p.expected_moves, p.elo
                 FROM puzzles p
-                LEFT JOIN user_puzzle_attempts u ON p.id = u.puzzle_id AND u.user_id = ?
+                LEFT JOIN user_puzzle_attempts u ON p.id = u.puzzle_id AND u.user_id = {ph}
                 WHERE u.puzzle_id IS NULL
-                  AND p.elo BETWEEN ? AND ?
+                  AND p.elo BETWEEN {ph} AND {ph}
                 ORDER BY RANDOM() LIMIT 1
                 """,
                 (user_id, user_elo - elo_range, user_elo + elo_range),
             )
             puzzle_row = cursor.fetchone()
             if puzzle_row is None:
-                cursor = connection.execute(
-                    """
+                cursor.execute(
+                    f"""
                     SELECT p.id, p.fen, p.expected_moves, p.elo
                     FROM puzzles p
-                    LEFT JOIN user_puzzle_attempts u ON p.id = u.puzzle_id AND u.user_id = ?
+                    LEFT JOIN user_puzzle_attempts u ON p.id = u.puzzle_id AND u.user_id = {ph}
                     WHERE u.puzzle_id IS NULL
                     ORDER BY RANDOM() LIMIT 1
                     """,
@@ -301,7 +361,7 @@ def get_puzzle():
                 )
                 puzzle_row = cursor.fetchone()
         else:
-            cursor = connection.execute(
+            cursor.execute(
                 "SELECT id, fen, expected_moves, elo FROM puzzles ORDER BY RANDOM() LIMIT 1"
             )
             puzzle_row = cursor.fetchone()
@@ -334,9 +394,11 @@ def submit_puzzle_result():
     if not isinstance(moves, list) or not all(isinstance(m, str) for m in moves):
         return jsonify({"error": "moves must be a list of strings"}), 400
 
+    ph = _placeholder()
     with get_database_connection() as connection:
-        cursor = connection.execute(
-            "SELECT fen, expected_moves, elo FROM puzzles WHERE id = ?", (puzzle_id,)
+        cursor = connection.cursor()
+        cursor.execute(
+            f"SELECT fen, expected_moves, elo FROM puzzles WHERE id = {ph}", (puzzle_id,)
         )
         puzzle_row = cursor.fetchone()
     if puzzle_row is None:
@@ -353,12 +415,14 @@ def submit_puzzle_result():
     if user_id and elo_countable:
         try:
             with get_database_connection() as connection:
-                attempt_row = connection.execute(
-                    "SELECT correct FROM user_puzzle_attempts WHERE user_id = ? AND puzzle_id = ?",
+                cursor = connection.cursor()
+                cursor.execute(
+                    f"SELECT correct FROM user_puzzle_attempts WHERE user_id = {ph} AND puzzle_id = {ph}",
                     (user_id, puzzle_id),
-                ).fetchone()
+                )
+                attempt_row = cursor.fetchone()
                 if attempt_row is None:
-                    cursor = connection.execute("SELECT elo FROM users WHERE id = ?", (user_id,))
+                    cursor.execute(f"SELECT elo FROM users WHERE id = {ph}", (user_id,))
                     user_row = cursor.fetchone()
                     puzzle_elo = puzzle_row["elo"]
                     if not user_row:
@@ -367,16 +431,16 @@ def submit_puzzle_result():
                     elo_delta = compute_elo_change(user_elo, puzzle_elo, correct)
                     new_elo = max(100, user_elo + elo_delta)
 
-                    connection.execute(
-                        "INSERT INTO user_puzzle_attempts (user_id, puzzle_id, correct) VALUES (?, ?, ?)",
+                    cursor.execute(
+                        f"INSERT INTO user_puzzle_attempts (user_id, puzzle_id, correct) VALUES ({ph}, {ph}, {ph})",
                         (user_id, puzzle_id, 1 if correct else 0),
                     )
-                    connection.execute("UPDATE users SET elo = ? WHERE id = ?", (new_elo, user_id))
-                    cursor = connection.execute("SELECT elo FROM users WHERE id = ?", (user_id,))
+                    cursor.execute(f"UPDATE users SET elo = {ph} WHERE id = {ph}", (new_elo, user_id))
+                    cursor.execute(f"SELECT elo FROM users WHERE id = {ph}", (user_id,))
                     updated_row = cursor.fetchone()
                     payload["elo"] = updated_row["elo"]
                     payload["eloChange"] = elo_delta
-        except sqlite3.IntegrityError:
+        except _integrity_error():
             return jsonify({"error": "invalid puzzle_id"}), 400
 
     return add_cors_headers(jsonify(payload)), 200
@@ -387,6 +451,8 @@ def cors_preflight(subpath):
     return add_cors_headers(make_response("", 200))
 
 
+initialize_database()
+
 if __name__ == "__main__":
-    initialize_database()
-    app.run(host="0.0.0.0", port=8080)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)

@@ -125,9 +125,8 @@ struct ContentView: View {
                                 }
                             }
                         }
-                    }
-                    .padding(.horizontal)
-                    .animation(.easeInOut(duration: 0.35), value: currentPuzzleId)
+                        .padding(.horizontal)
+                        .animation(.easeInOut(duration: 0.35), value: currentPuzzleId)
 
                         Button("Check answer") {
                             checkAnswer()

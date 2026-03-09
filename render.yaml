@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: bonsai-chess-api
+    runtime: python
+    rootDir: server
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn server:app
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bonsai-chess-db
+          property: connectionString
+
+databases:
+  - name: bonsai-chess-db
+    plan: free
