@@ -297,7 +297,11 @@ struct ContentView: View {
                 }
                 do {
                     let puzzle = try JSONDecoder().decode(PuzzleResponse.self, from: data)
-                    let newPos = Position(fen: puzzle.fen)
+                    guard let newPos = Position(fen: puzzle.fen) else {
+                        loadError = "Invalid FEN in puzzle."
+                        if isTransition { checkAnswerLocked = false }
+                        return
+                    }
 
                     if isTransition, let from = finalPosition {
                         pendingPuzzle = (puzzle.id, puzzle.fen, puzzle.expectedMoves)
@@ -330,6 +334,9 @@ struct ContentView: View {
                         isAnimatingSolution = false
                         displayPosition = nil
                     }
+                } catch let decodingError as DecodingError {
+                    loadError = "Decode error: \(decodingError)"
+                    if isTransition { checkAnswerLocked = false }
                 } catch {
                     loadError = "Invalid response: \(error.localizedDescription)"
                     if isTransition { checkAnswerLocked = false }

@@ -19,7 +19,7 @@ struct AuthResponse: Codable {
 
 @MainActor
 final class UserSession: ObservableObject {
-    static let serverURL = "http://localhost:8080"
+    static let serverURL = "https://bonsai-chess-api.onrender.com"
 
     @Published private(set) var currentUser: User?
     @Published var isLoading = false

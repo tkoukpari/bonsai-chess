@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
-import sqlite3
+import os
 from pathlib import Path
 
+DATABASE_URL = os.environ.get("DATABASE_URL")
 database_path = Path(__file__).parent / "bonsai_puzzles.db"
 
 puzzles = [
@@ -27,21 +28,28 @@ puzzles = [
 
 
 def main():
-    connection = sqlite3.connect(database_path)
+    ph = "%s" if DATABASE_URL else "?"
+    if DATABASE_URL:
+        import psycopg2
+        conn = psycopg2.connect(DATABASE_URL)
+    else:
+        import sqlite3
+        conn = sqlite3.connect(database_path)
     try:
-        connection.execute("DELETE FROM user_puzzle_attempts")
-        connection.execute("DELETE FROM puzzles")
+        cur = conn.cursor()
+        cur.execute("DELETE FROM user_puzzle_attempts")
+        cur.execute("DELETE FROM puzzles")
         for fen, expected_moves, elo in puzzles:
-            connection.execute(
-                "INSERT INTO puzzles (fen, expected_moves, elo) VALUES (?, ?, ?)",
+            cur.execute(
+                f"INSERT INTO puzzles (fen, expected_moves, elo) VALUES ({ph}, {ph}, {ph})",
                 (fen, expected_moves, elo),
             )
-        connection.commit()
-        cursor = connection.execute("SELECT COUNT(*) FROM puzzles")
-        count = cursor.fetchone()[0]
+        conn.commit()
+        cur.execute("SELECT COUNT(*) FROM puzzles")
+        count = cur.fetchone()[0]
         print(f"Seeded {count} tactical puzzles.")
     finally:
-        connection.close()
+        conn.close()
 
 
 if __name__ == "__main__":

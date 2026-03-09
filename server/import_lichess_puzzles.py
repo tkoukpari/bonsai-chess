@@ -5,13 +5,14 @@ Downloads lichess_db_puzzle.csv.zst, samples puzzles in a rating range, converts
 to BonsaiChess format, and seeds the puzzles table.
 
 Usage:
-    python import_lichess_puzzles.py [--max-puzzles 500] [--rating-min 700] [--rating-max 1300]
+    python import_lichess_puzzles.py [--max-puzzles 10000] [--rating-min 700] [--rating-max 1300]
+    DATABASE_URL=postgresql://... python import_lichess_puzzles.py --max-puzzles 10000  # for Render
 """
 
 import csv
 import io
+import os
 import ssl
-import sqlite3
 import sys
 import urllib.request
 from pathlib import Path
@@ -25,6 +26,7 @@ except ImportError:
     print("Run: pip install python-chess")
     sys.exit(1)
 
+DATABASE_URL = os.environ.get("DATABASE_URL")
 DATABASE_PATH = Path(__file__).parent / "bonsai_puzzles.db"
 LICHESS_PUZZLE_URL = "https://database.lichess.org/lichess_db_puzzle.csv.zst"
 
@@ -115,10 +117,10 @@ def stream_csv_from_zst(url: str):
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Import Lichess puzzles into BonsaiChess")
-    parser.add_argument("--max-puzzles", type=int, default=500, help="Max puzzles to import")
+    parser.add_argument("--max-puzzles", type=int, default=10000, help="Max puzzles to import")
     parser.add_argument("--rating-min", type=int, default=700, help="Min puzzle rating")
     parser.add_argument("--rating-max", type=int, default=1300, help="Max puzzle rating")
-    parser.add_argument("--sample-every", type=int, default=500, help="Take every Nth puzzle in range")
+    parser.add_argument("--sample-every", type=int, default=10, help="Take every Nth puzzle in range (lower = more puzzles, 10 = ~10k from ~100k scanned)")
     args = parser.parse_args()
 
     print("Downloading and decompressing Lichess puzzle database...")
@@ -156,17 +158,25 @@ def main():
 
     print(f"Collected {len(collected)} puzzles. Seeding database...")
 
-    conn = sqlite3.connect(DATABASE_PATH)
+    ph = "%s" if DATABASE_URL else "?"
+    if DATABASE_URL:
+        import psycopg2
+        conn = psycopg2.connect(DATABASE_URL)
+    else:
+        import sqlite3
+        conn = sqlite3.connect(DATABASE_PATH)
     try:
-        conn.execute("DELETE FROM user_puzzle_attempts")
-        conn.execute("DELETE FROM puzzles")
+        cur = conn.cursor()
+        cur.execute("DELETE FROM user_puzzle_attempts")
+        cur.execute("DELETE FROM puzzles")
         for fen, expected_moves, elo in collected:
-            conn.execute(
-                "INSERT INTO puzzles (fen, expected_moves, elo) VALUES (?, ?, ?)",
+            cur.execute(
+                f"INSERT INTO puzzles (fen, expected_moves, elo) VALUES ({ph}, {ph}, {ph})",
                 (fen, expected_moves, elo),
             )
         conn.commit()
-        count = conn.execute("SELECT COUNT(*) FROM puzzles").fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM puzzles")
+        count = cur.fetchone()[0]
         print(f"Seeded {count} puzzles.")
     finally:
         conn.close()
