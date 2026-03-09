@@ -20,14 +20,18 @@ jwt_algorithm = "HS256"
 app = Flask(__name__)
 
 
+def _cursor(conn):
+    if DATABASE_URL:
+        from psycopg2.extras import RealDictCursor
+        return conn.cursor(cursor_factory=RealDictCursor)
+    return conn.cursor()
+
+
 @contextmanager
 def get_database_connection():
     if DATABASE_URL:
         import psycopg2
-        from psycopg2.extras import RealDictCursor
         conn = psycopg2.connect(DATABASE_URL)
-        _orig_cursor = conn.cursor
-        conn.cursor = lambda: _orig_cursor(cursor_factory=RealDictCursor)
         try:
             yield conn
             conn.commit()
@@ -53,7 +57,7 @@ def _placeholder():
 def initialize_database():
     ph = _placeholder()
     with get_database_connection() as connection:
-        cursor = connection.cursor()
+        cursor = _cursor(connection)
         if DATABASE_URL:
             cursor.execute(
                 """
@@ -203,7 +207,7 @@ def login():
 
     ph = _placeholder()
     with get_database_connection() as connection:
-        cursor = connection.cursor()
+        cursor = _cursor(connection)
         cursor.execute(
             f"SELECT id, username, email, elo, password_hash FROM users WHERE username = {ph}",
             (username,),
@@ -261,7 +265,7 @@ def create_user():
     ph = _placeholder()
     try:
         with get_database_connection() as connection:
-            cursor = connection.cursor()
+            cursor = _cursor(connection)
             cursor.execute(
                 f"INSERT INTO users (username, email, password_hash, elo) VALUES ({ph}, {ph}, {ph}, {ph}) RETURNING id, username, email, elo",
                 (username, email, password_hash, default_elo_rating),
@@ -301,7 +305,7 @@ def get_or_delete_current_user(user_id):
     ph = _placeholder()
     if request.method == "DELETE":
         with get_database_connection() as connection:
-            cursor = connection.cursor()
+            cursor = _cursor(connection)
             cursor.execute(f"DELETE FROM user_puzzle_attempts WHERE user_id = {ph}", (user_id,))
             cursor.execute(f"DELETE FROM users WHERE id = {ph} RETURNING id", (user_id,))
             if cursor.rowcount == 0:
@@ -309,7 +313,7 @@ def get_or_delete_current_user(user_id):
         return add_cors_headers(make_response("", 204))
 
     with get_database_connection() as connection:
-        cursor = connection.cursor()
+        cursor = _cursor(connection)
         cursor.execute(
             f"SELECT id, username, email, elo FROM users WHERE id = {ph}",
             (user_id,),
@@ -331,7 +335,7 @@ def get_puzzle():
     ph = _placeholder()
 
     with get_database_connection() as connection:
-        cursor = connection.cursor()
+        cursor = _cursor(connection)
         if user_id:
             cursor.execute(f"SELECT elo FROM users WHERE id = {ph}", (user_id,))
             user_row = cursor.fetchone()
@@ -396,7 +400,7 @@ def submit_puzzle_result():
 
     ph = _placeholder()
     with get_database_connection() as connection:
-        cursor = connection.cursor()
+        cursor = _cursor(connection)
         cursor.execute(
             f"SELECT fen, expected_moves, elo FROM puzzles WHERE id = {ph}", (puzzle_id,)
         )
@@ -415,7 +419,7 @@ def submit_puzzle_result():
     if user_id and elo_countable:
         try:
             with get_database_connection() as connection:
-                cursor = connection.cursor()
+                cursor = _cursor(connection)
                 cursor.execute(
                     f"SELECT correct FROM user_puzzle_attempts WHERE user_id = {ph} AND puzzle_id = {ph}",
                     (user_id, puzzle_id),
