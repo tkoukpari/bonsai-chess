@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
 import os
-from pathlib import Path
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
-database_path = Path(__file__).parent / "bonsai_puzzles.db"
+import psycopg2
+
+DATABASE_URL = os.environ["DATABASE_URL"]
 
 puzzles = [
     ("r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4", "1. Qxf7#", 600),
@@ -28,20 +28,14 @@ puzzles = [
 
 
 def main():
-    ph = "%s" if DATABASE_URL else "?"
-    if DATABASE_URL:
-        import psycopg2
-        conn = psycopg2.connect(DATABASE_URL)
-    else:
-        import sqlite3
-        conn = sqlite3.connect(database_path)
+    conn = psycopg2.connect(DATABASE_URL)
     try:
         cur = conn.cursor()
         cur.execute("DELETE FROM user_puzzle_attempts")
         cur.execute("DELETE FROM puzzles")
         for fen, expected_moves, elo in puzzles:
             cur.execute(
-                f"INSERT INTO puzzles (fen, expected_moves, elo) VALUES ({ph}, {ph}, {ph})",
+                "INSERT INTO puzzles (fen, expected_moves, elo) VALUES (%s, %s, %s)",
                 (fen, expected_moves, elo),
             )
         conn.commit()

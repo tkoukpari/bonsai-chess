@@ -5,8 +5,7 @@ Downloads lichess_db_puzzle.csv.zst, samples puzzles in a rating range, converts
 to BonsaiChess format, and seeds the puzzles table.
 
 Usage:
-    python import_lichess_puzzles.py [--max-puzzles 10000] [--rating-min 700] [--rating-max 1300]
-    DATABASE_URL=postgresql://... python import_lichess_puzzles.py --max-puzzles 10000  # for Render
+    DATABASE_URL=postgresql://... python import_lichess_puzzles.py [--max-puzzles 10000]
 """
 
 import csv
@@ -14,10 +13,12 @@ import io
 import os
 import ssl
 import sys
+import time
 import urllib.request
-from pathlib import Path
 
 import certifi
+import psycopg2
+from psycopg2.extras import execute_values
 import zstandard
 
 try:
@@ -26,8 +27,7 @@ except ImportError:
     print("Run: pip install python-chess")
     sys.exit(1)
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
-DATABASE_PATH = Path(__file__).parent / "bonsai_puzzles.db"
+DATABASE_URL = os.environ["DATABASE_URL"]
 LICHESS_PUZZLE_URL = "https://database.lichess.org/lichess_db_puzzle.csv.zst"
 
 
@@ -125,13 +125,19 @@ def main():
 
     print("Downloading and decompressing Lichess puzzle database...")
     print("(This may take a few minutes...)")
+    t0 = time.time()
 
     collected: list[tuple[str, str, int]] = []
     in_range = 0
+    lines_read = 0
 
     for line in stream_csv_from_zst(LICHESS_PUZZLE_URL):
         if len(collected) >= args.max_puzzles:
             break
+
+        lines_read += 1
+        if lines_read % 50000 == 0:
+            print(f"  Scanned {lines_read:,} lines, collected {len(collected):,} puzzles...")
 
         row = next(csv.reader(io.StringIO(line)), None)
         if not row or len(row) < 4:
@@ -153,31 +159,36 @@ def main():
         result = convert_lichess_to_bonsai(fen, moves_str, rating)
         if result:
             collected.append(result)
-            if len(collected) % 50 == 0:
-                print(f"  Collected {len(collected)} puzzles...")
+            if len(collected) % 1000 == 0:
+                print(f"  Collected {len(collected):,} puzzles...")
 
-    print(f"Collected {len(collected)} puzzles. Seeding database...")
+    elapsed = time.time() - t0
+    print(f"Collected {len(collected):,} puzzles in {elapsed:.1f}s. Seeding database...")
 
-    ph = "%s" if DATABASE_URL else "?"
-    if DATABASE_URL:
-        import psycopg2
-        conn = psycopg2.connect(DATABASE_URL)
-    else:
-        import sqlite3
-        conn = sqlite3.connect(DATABASE_PATH)
+    t1 = time.time()
+    print("  Connecting to database...")
+    conn = psycopg2.connect(DATABASE_URL)
     try:
         cur = conn.cursor()
+        print("  Deleting existing puzzles and attempts...")
         cur.execute("DELETE FROM user_puzzle_attempts")
         cur.execute("DELETE FROM puzzles")
-        for fen, expected_moves, elo in collected:
-            cur.execute(
-                f"INSERT INTO puzzles (fen, expected_moves, elo) VALUES ({ph}, {ph}, {ph})",
-                (fen, expected_moves, elo),
+        print(f"  Inserting {len(collected):,} puzzles (batches of 1000)...")
+        for i in range(0, len(collected), 1000):
+            batch = collected[i : i + 1000]
+            execute_values(
+                cur,
+                "INSERT INTO puzzles (fen, expected_moves, elo) VALUES %s",
+                batch,
+                page_size=1000,
             )
+            print(f"    Inserted {min(i + 1000, len(collected)):,} / {len(collected):,}")
+        print("  Committing...")
         conn.commit()
         cur.execute("SELECT COUNT(*) FROM puzzles")
         count = cur.fetchone()[0]
-        print(f"Seeded {count} puzzles.")
+        elapsed_db = time.time() - t1
+        print(f"Seeded {count:,} puzzles in {elapsed_db:.1f}s. Done.")
     finally:
         conn.close()
 

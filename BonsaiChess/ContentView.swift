@@ -9,7 +9,7 @@ import ChessKit
 private struct PuzzleResponse: Decodable {
     let id: Int
     let fen: String
-    let expectedMoves: String
+    let moveCount: Int
     let elo: Int?
 }
 
@@ -31,7 +31,7 @@ struct ContentView: View {
     @EnvironmentObject var session: UserSession
 
     @State private var puzzleFEN: String?
-    @State private var expectedMoves: String?
+    @State private var moveCount: Int = 0
     @State private var currentPuzzleId: Int?
     @State private var position: Position?
     @State private var moveInputs: [String] = []
@@ -46,25 +46,35 @@ struct ContentView: View {
     @State private var transitionFromPosition: Position?
     @State private var transitionToPosition: Position?
     @State private var boardTransitionProgress: CGFloat = 1
-    @State private var pendingPuzzle: (id: Int, fen: String, moves: String)?
+    @State private var pendingPuzzle: (id: Int, fen: String, moveCount: Int)?
     @State private var checkAnswerLocked = false
     @FocusState private var focusedInputIndex: Int?
 
     private var parsedMoves: [ParsedMove] {
-        guard let moves = expectedMoves, !moves.isEmpty else { return [] }
-        return Self.parsePGN(moves)
+        guard let fen = puzzleFEN, moveCount > 0 else { return [] }
+        let parts = fen.split(separator: " ", omittingEmptySubsequences: false)
+        let whiteToPlay = parts.count <= 1 || parts[1] != "b"
+        var moves: [ParsedMove] = []
+        var moveNumber = 1
+        var isWhite = whiteToPlay
+        for _ in 0..<moveCount {
+            moves.append(ParsedMove(moveNumber: moveNumber, isWhite: isWhite, san: ""))
+            if isWhite {
+                isWhite = false
+            } else {
+                isWhite = true
+                moveNumber += 1
+            }
+        }
+        return moves
     }
 
-    private var expectedSANs: [String] { parsedMoves.map(\.san) }
     private var moveRows: [MoveRow] { Self.buildMoveRows(parsedMoves) }
 
     private var toPlayLabel: String {
-        guard let first = parsedMoves.first else {
-            guard let fen = puzzleFEN else { return "White to play" }
-            let parts = fen.split(separator: " ", omittingEmptySubsequences: false)
-            return parts.count > 1 && parts[1] == "b" ? "Black to play" : "White to play"
-        }
-        return first.isWhite ? "White to play" : "Black to play"
+        guard let fen = puzzleFEN else { return "White to play" }
+        let parts = fen.split(separator: " ", omittingEmptySubsequences: false)
+        return parts.count > 1 && parts[1] == "b" ? "Black to play" : "White to play"
     }
 
     var body: some View {
@@ -88,7 +98,7 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    if loadError == nil && (expectedMoves != nil || position != nil) {
+                    if loadError == nil && (moveCount > 0 || position != nil) {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(toPlayLabel)
                                 .font(.subheadline)
@@ -223,30 +233,6 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.4), value: transitionPhase)
     }
 
-    private static func parsePGN(_ pgn: String) -> [ParsedMove] {
-        let tokens = pgn.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
-        var moves: [ParsedMove] = []
-        var moveNumber = 1
-        var expectWhite = true
-
-        for token in tokens {
-            if token.hasSuffix(".") && token.dropLast().allSatisfy(\.isNumber), let number = Int(token.dropLast()) {
-                moveNumber = number
-                expectWhite = true
-                continue
-            }
-            if token == ".." || token == "..." {
-                expectWhite = false
-                continue
-            }
-            if token.contains(where: \.isLetter) {
-                moves.append(ParsedMove(moveNumber: moveNumber, isWhite: expectWhite, san: token))
-                expectWhite.toggle()
-            }
-        }
-        return moves
-    }
-
     private static func buildMoveRows(_ parsed: [ParsedMove]) -> [MoveRow] {
         var inputIndex = 0
         var rowsByNumber: [Int: (white: Int?, black: Int?)] = [:]
@@ -304,7 +290,7 @@ struct ContentView: View {
                     }
 
                     if isTransition, let from = finalPosition {
-                        pendingPuzzle = (puzzle.id, puzzle.fen, puzzle.expectedMoves)
+                        pendingPuzzle = (puzzle.id, puzzle.fen, puzzle.moveCount)
                         transitionFromPosition = from
                         transitionToPosition = newPos
                         transitionPhase = .fadeOut
@@ -321,8 +307,8 @@ struct ContentView: View {
                     } else {
                         currentPuzzleId = puzzle.id
                         puzzleFEN = puzzle.fen
-                        expectedMoves = puzzle.expectedMoves
-                        moveInputs = Array(repeating: "", count: Self.parsePGN(puzzle.expectedMoves).count)
+                        moveCount = puzzle.moveCount
+                        moveInputs = Array(repeating: "", count: puzzle.moveCount)
                         feedback = ""
                         animatingMove = nil
                         loadPosition()
@@ -349,8 +335,8 @@ struct ContentView: View {
         guard let pending = pendingPuzzle else { return }
         currentPuzzleId = pending.id
         puzzleFEN = pending.fen
-        expectedMoves = pending.moves
-        moveInputs = Array(repeating: "", count: Self.parsePGN(pending.moves).count)
+        moveCount = pending.moveCount
+        moveInputs = Array(repeating: "", count: pending.moveCount)
         feedback = ""
         loadPosition()
         transitionFromPosition = nil
@@ -423,7 +409,7 @@ struct ContentView: View {
             }
 
             var currentPos = startPosition
-            for (i, san) in expectedSANs.enumerated() {
+            for (i, san) in userMoves.enumerated() {
                 guard let move = Move(san: san, position: currentPos) else { break }
                 var board = Board(position: currentPos)
                 guard board.move(pieceAt: move.start, to: move.end) != nil else { break }
@@ -439,7 +425,7 @@ struct ContentView: View {
                     displayPosition = currentPos
                     animatingMove = nil
                 }
-                if i < expectedSANs.count - 1 {
+                if i < userMoves.count - 1 {
                     try? await Task.sleep(nanoseconds: 120_000_000)
                 }
             }
