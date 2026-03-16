@@ -187,7 +187,7 @@
     }
     setUI();
 
-    fetch('/api/puzzle')
+    fetch('/api/puzzle/daily')
       .then(function (res) {
         if (!res.ok) return res.text().then(function (t) { throw new Error(t || 'Server error'); });
         return res.json();

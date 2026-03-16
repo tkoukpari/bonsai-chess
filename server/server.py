@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
+import hashlib
 import math
 import os
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from functools import wraps
 
 import bcrypt
@@ -325,6 +327,56 @@ def get_puzzle():
     )
 
 
+DAILY_ELO_MIN = 1800
+DAILY_ELO_MAX = 2200
+
+
+@app.route("/api/puzzle/daily", methods=["GET", "OPTIONS"])
+def get_puzzle_daily():
+    """Return one puzzle per calendar day (UTC), 1800–2200 ELO, via hash(date) % count."""
+    if request.method == "OPTIONS":
+        return add_cors_headers(make_response("", 200))
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    ph = "%s"
+    with get_database_connection() as connection:
+        cursor = _cursor(connection)
+        cursor.execute(
+            f"SELECT COUNT(*) AS c FROM puzzles WHERE elo BETWEEN {ph} AND {ph}",
+            (DAILY_ELO_MIN, DAILY_ELO_MAX),
+        )
+        count = cursor.fetchone()["c"]
+    if count == 0:
+        return make_response("No daily puzzles available (none in 1800–2200 ELO)", 500)
+    h = hashlib.sha256(date_str.encode()).digest()
+    index = int.from_bytes(h[:8], "big") % count
+    with get_database_connection() as connection:
+        cursor = _cursor(connection)
+        cursor.execute(
+            f"""
+            SELECT id, fen, expected_moves, elo
+            FROM puzzles
+            WHERE elo BETWEEN {ph} AND {ph}
+            ORDER BY id
+            OFFSET {ph} LIMIT 1
+            """,
+            (DAILY_ELO_MIN, DAILY_ELO_MAX, index),
+        )
+        puzzle_row = cursor.fetchone()
+    if puzzle_row is None:
+        return make_response("No daily puzzles available", 500)
+    move_count = len(parse_expected_moves(puzzle_row["expected_moves"]))
+    return add_cors_headers(
+        jsonify(
+            {
+                "id": puzzle_row["id"],
+                "fen": puzzle_row["fen"],
+                "moveCount": move_count,
+                "elo": puzzle_row["elo"],
+            }
+        )
+    )
+
+
 @app.route("/api/puzzle/result", methods=["POST", "OPTIONS"])
 def submit_puzzle_result():
     if request.method == "OPTIONS":
@@ -400,12 +452,17 @@ WEB_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web"))
 
 
 @app.route("/")
-def serve_index():
+def serve_root():
+    abort(404)
+
+
+@app.route("/daily")
+def serve_daily():
     return send_from_directory(WEB_DIR, "index.html")
 
 
-@app.route("/<path:path>")
-def serve_web(path):
+@app.route("/daily/<path:path>")
+def serve_daily_assets(path):
     if path.startswith("api/"):
         abort(404)
     file_path = os.path.join(WEB_DIR, path)
