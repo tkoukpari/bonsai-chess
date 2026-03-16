@@ -165,15 +165,8 @@ struct ContentView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 8) {
-                        if let elo = session.currentUser?.elo {
-                            Text("\(elo)")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        Text("BonsaiChess")
-                            .font(.headline)
-                    }
+                    Text("BonsaiChess")
+                        .font(.headline)
                 }
             }
             .sheet(isPresented: $menuVisible) {

@@ -7,7 +7,7 @@ from functools import wraps
 
 import bcrypt
 import jwt
-from flask import Flask, jsonify, make_response, request
+from flask import Flask, abort, jsonify, make_response, request, send_from_directory
 
 from puzzle_validation import parse_expected_moves, validate_solution
 
@@ -394,6 +394,24 @@ def submit_puzzle_result():
 @app.route("/api/<path:subpath>", methods=["OPTIONS"])
 def cors_preflight(subpath):
     return add_cors_headers(make_response("", 200))
+
+
+WEB_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web"))
+
+
+@app.route("/")
+def serve_index():
+    return send_from_directory(WEB_DIR, "index.html")
+
+
+@app.route("/<path:path>")
+def serve_web(path):
+    if path.startswith("api/"):
+        abort(404)
+    file_path = os.path.join(WEB_DIR, path)
+    if os.path.isfile(file_path):
+        return send_from_directory(WEB_DIR, path)
+    return send_from_directory(WEB_DIR, "index.html")
 
 
 initialize_database()
