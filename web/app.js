@@ -1,3 +1,5 @@
+import { Chess } from 'https://unpkg.com/chess.js@1.5.1/dist/esm/chess.js';
+
 (function () {
   'use strict';
 
