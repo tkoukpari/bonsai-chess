@@ -70,7 +70,7 @@ import { Chess } from 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/ch
       function makeInput(idx) {
         var inp = document.createElement('input');
         inp.type = 'text';
-        inp.className = 'form-control form-control-sm move-input';
+        inp.className = 'move-input';
         inp.autocomplete = 'off';
         if (idx !== null) {
           inp.value = state.moveInputs[idx] || '';

@@ -1,28 +1,66 @@
 #!/usr/bin/env python3
 
-import hashlib
+import argparse
 import math
 import os
+import random
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from functools import wraps
 
-import bcrypt
-import jwt
 from flask import Flask, abort, jsonify, make_response, request, send_from_directory
 
 from puzzle_validation import parse_expected_moves, validate_solution
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
+DEV_MODE = False
 
-DATABASE_URL = os.environ["DATABASE_URL"]
+DEV_PUZZLES = [
+    {
+        "id": 1,
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+        "expected_moves": "1. Qxf7#",
+        "elo": 800,
+    },
+    {
+        "id": 2,
+        "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+        "expected_moves": "1... e5",
+        "elo": 400,
+    },
+    {
+        "id": 3,
+        "fen": "r1bqkbnr/pppppppp/2n5/8/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 2 2",
+        "expected_moves": "1... e5",
+        "elo": 500,
+    },
+    {
+        "id": 4,
+        "fen": "rnbqkb1r/pppppppp/5n2/8/2PP4/8/PP2PPPP/RNBQKBNR b KQkq - 0 2",
+        "expected_moves": "1... e6",
+        "elo": 600,
+    },
+]
+_dev_current_puzzle = None
+
 default_elo_rating = 1200
 elo_rating_change_factor = 32
 jwt_secret = os.environ.get("JWT_SECRET", "dev-secret-change-in-production")
 jwt_algorithm = "HS256"
 
 app = Flask(__name__)
+
+
+def _init_db_deps():
+    """Import DB dependencies lazily so --dev works without them installed."""
+    global psycopg2, RealDictCursor, bcrypt, jwt, DATABASE_URL
+    import psycopg2 as _pg
+    from psycopg2.extras import RealDictCursor as _rdc
+    import bcrypt as _bc
+    import jwt as _jwt
+    psycopg2 = _pg
+    RealDictCursor = _rdc
+    bcrypt = _bc
+    jwt = _jwt
+    DATABASE_URL = os.environ["DATABASE_URL"]
 
 
 def _cursor(conn):
@@ -87,6 +125,12 @@ def initialize_database():
             )
 
 
+def _dev_pick_puzzle():
+    global _dev_current_puzzle
+    _dev_current_puzzle = random.choice(DEV_PUZZLES)
+    return _dev_current_puzzle
+
+
 def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
@@ -95,6 +139,8 @@ def add_cors_headers(response):
 
 
 def get_current_user_id_from_token():
+    if DEV_MODE:
+        return None
     authorization = request.headers.get("Authorization")
     if not authorization or not authorization.startswith("Bearer "):
         return None
@@ -329,24 +375,22 @@ def get_puzzle():
 
 @app.route("/api/puzzle/daily", methods=["GET", "OPTIONS"])
 def get_puzzle_daily():
-    """Return one puzzle per calendar day (UTC) via hash(date) % count."""
+    """Return a random puzzle."""
     if request.method == "OPTIONS":
         return add_cors_headers(make_response("", 200))
-    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    with get_database_connection() as connection:
-        cursor = _cursor(connection)
-        cursor.execute("SELECT COUNT(*) AS c FROM puzzles")
-        count = cursor.fetchone()["c"]
-    if count == 0:
-        return make_response("No puzzles available", 500)
-    h = hashlib.sha256(date_str.encode()).digest()
-    index = int.from_bytes(h[:8], "big") % count
-    ph = "%s"
+
+    if DEV_MODE:
+        puzzle = _dev_current_puzzle or _dev_pick_puzzle()
+        move_count = len(parse_expected_moves(puzzle["expected_moves"]))
+        return add_cors_headers(jsonify({
+            "id": puzzle["id"], "fen": puzzle["fen"],
+            "moveCount": move_count, "elo": puzzle["elo"],
+        }))
+
     with get_database_connection() as connection:
         cursor = _cursor(connection)
         cursor.execute(
-            f"SELECT id, fen, expected_moves, elo FROM puzzles ORDER BY id OFFSET {ph} LIMIT 1",
-            (index,),
+            "SELECT id, fen, expected_moves, elo FROM puzzles ORDER BY RANDOM() LIMIT 1"
         )
         puzzle_row = cursor.fetchone()
     if puzzle_row is None:
@@ -371,12 +415,25 @@ def submit_puzzle_result():
     body = request.get_json()
     if not body:
         return jsonify({"error": "JSON body required"}), 400
-    puzzle_id = body.get("puzzle_id")
     moves = body.get("moves")
-    if puzzle_id is None:
-        return jsonify({"error": "puzzle_id required"}), 400
     if not isinstance(moves, list) or not all(isinstance(m, str) for m in moves):
         return jsonify({"error": "moves must be a list of strings"}), 400
+
+    if DEV_MODE:
+        puzzle = _dev_current_puzzle or _dev_pick_puzzle()
+        correct, error, _ = validate_solution(
+            puzzle["fen"], puzzle["expected_moves"], moves
+        )
+        payload = {"correct": correct}
+        if error:
+            payload["error"] = error
+        if correct:
+            _dev_pick_puzzle()
+        return add_cors_headers(jsonify(payload)), 200
+
+    puzzle_id = body.get("puzzle_id")
+    if puzzle_id is None:
+        return jsonify({"error": "puzzle_id required"}), 400
 
     ph = "%s"
     with get_database_connection() as connection:
@@ -458,8 +515,22 @@ def serve_daily_assets(path):
     return send_from_directory(WEB_DIR, "index.html")
 
 
-initialize_database()
-
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dev", action="store_true",
+                        help="Run with dummy puzzles, no database required")
+    args = parser.parse_args()
+
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+
+    if args.dev:
+        DEV_MODE = True
+        print(f"Dev server (no database) running at http://localhost:{port}/daily")
+        app.run(host="0.0.0.0", port=port, debug=True)
+    else:
+        _init_db_deps()
+        initialize_database()
+        app.run(host="0.0.0.0", port=port)
+else:
+    _init_db_deps()
+    initialize_database()
