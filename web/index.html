@@ -9,16 +9,36 @@
   <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
   <style>
     body { padding-top: 1.5rem; padding-bottom: 2rem; }
-    #board-col { max-width: 450px; }
     .move-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
     .move-num { min-width: 1.8rem; text-align: right; color: var(--bs-secondary); font-weight: 500; }
     .move-input { flex: 1; max-width: 6rem; }
     .feedback-correct { color: var(--bs-success); font-weight: 600; }
     .feedback-error { color: var(--bs-danger); font-weight: 600; }
+    .white-1e1d7 {
+      background-color: #ffffff !important;
+      color: #333;
+    }
+    .black-3c85d {
+      background: repeating-linear-gradient(
+        -45deg,
+        #999999,
+        #999999 3px,
+        #ffffff 3px,
+        #ffffff 6px
+      ) !important;
+      color: #333;
+      filter: blur(0.5px);
+    }
+    #board img {
+      filter: blur(0.5px);
+    }
+    @media (max-width: 767.98px) {
+      #board-col { width: 90%; margin: 0 auto; }
+    }
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="container-lg px-4">
     <div id="loading" class="text-center py-5 text-secondary" style="display: none;">
       <div class="spinner-border spinner-border-sm me-2" role="status"></div>
       Loading puzzle&hellip;
@@ -30,14 +50,14 @@
 
     <div id="puzzle-area" style="display: none;">
       <div class="row gx-4 gy-3">
-        <div class="col-md-6" id="board-col">
+        <div class="col-md-5" id="board-col">
           <div id="board" style="width: 100%;"></div>
         </div>
-        <div class="col-md-6 d-flex flex-column">
+        <div class="col-md-4 d-flex flex-column">
           <p id="to-play" class="text-secondary small mb-2"></p>
           <div id="move-rows" class="mb-3"></div>
           <div class="mb-2">
-            <button type="button" class="btn btn-primary" id="check-btn">Check answer</button>
+            <input type="button" value="Check answer" id="check-btn">
           </div>
           <p id="feedback" class="mb-0"></p>
         </div>

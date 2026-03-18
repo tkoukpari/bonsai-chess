@@ -129,14 +129,18 @@ import { Chess } from 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/ch
     var cfg = {
       position: fen,
       showNotation: true,
-      pieceTheme: 'img/chesspieces/wikipedia/{piece}.png',
-      moveSpeed: 400,
+      pieceTheme: 'img/chesspieces/merida/{piece}.svg',
+      moveSpeed: 600,
+      snapbackSpeed: 600,
+      snapSpeed: 100,
+      trashSpeed: 200,
       appearSpeed: 200
     };
     if (board) {
       board.position(fen, false);
     } else {
       board = Chessboard('board', cfg);
+      window.addEventListener('resize', function () { board.resize(); });
     }
   }
 
@@ -157,15 +161,45 @@ import { Chess } from 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/ch
         state.checkLocked = false;
         state.isAnimating = false;
 
+        showPuzzle();
         initBoard(data.fen);
+        board.resize();
         el.toPlay.textContent = toPlayLabel(data.fen);
         renderMoveInputs();
-        showPuzzle();
         updateCheckBtn();
         setFeedback('', false);
       })
       .catch(function (err) {
         showError(err.message || 'Cannot reach server.');
+      });
+  }
+
+  function loadNextPuzzle() {
+    fetch('/api/puzzle/daily')
+      .then(function (res) {
+        if (!res.ok) return res.text().then(function (t) { throw new Error(t || 'Server error'); });
+        return res.json();
+      })
+      .then(function (data) {
+        state.puzzleId = data.id;
+        state.fen = data.fen;
+        state.moveCount = data.moveCount;
+        state.moveInputs = Array(data.moveCount).fill('');
+        state.checkLocked = false;
+        state.isAnimating = false;
+
+        game = new Chess(data.fen);
+        board.position(data.fen, true);
+        el.toPlay.textContent = toPlayLabel(data.fen);
+        renderMoveInputs();
+        updateCheckBtn();
+        setFeedback('', false);
+      })
+      .catch(function () {
+        state.checkLocked = false;
+        state.isAnimating = false;
+        updateCheckBtn();
+        setFeedback('Could not load next puzzle.', false);
       });
   }
 
@@ -188,9 +222,9 @@ import { Chess } from 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/ch
       if (!move) { idx++; runNext(); return; }
       board.move(move.from + '-' + move.to);
       idx++;
-      setTimeout(runNext, 600);
+      setTimeout(runNext, 1200);
     }
-    runNext();
+    setTimeout(runNext, 500);
   }
 
   function checkAnswer() {
@@ -209,7 +243,7 @@ import { Chess } from 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/ch
         if (data.correct) {
           setFeedback('Correct! Well done.', true);
           animateSolution(moves, function () {
-            fetchPuzzle();
+            loadNextPuzzle();
           });
         } else {
           state.checkLocked = false;
