@@ -129,7 +129,7 @@ import { Chess } from 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/ch
     var cfg = {
       position: fen,
       showNotation: true,
-      pieceTheme: 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/img/chesspieces/wikipedia/{piece}.png',
+      pieceTheme: 'img/chesspieces/wikipedia/{piece}.png',
       moveSpeed: 400,
       appearSpeed: 200
     };
