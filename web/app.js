@@ -128,7 +128,7 @@ import { Chess } from 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/ch
     game = new Chess(fen);
     var cfg = {
       position: fen,
-      showNotation: true,
+      showNotation: false,
       pieceTheme: 'img/chesspieces/merida/{piece}.svg',
       moveSpeed: 600,
       snapbackSpeed: 600,
