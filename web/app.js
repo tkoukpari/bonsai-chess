@@ -1,4 +1,4 @@
-import { Chess } from 'https://unpkg.com/chess.js@1.5.1/dist/esm/chess.js';
+import { Chess } from 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/chess.min.js';
 
 (function () {
   'use strict';
