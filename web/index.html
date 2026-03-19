@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <base href="/daily/">
-  <title>BonsaiChess - Daily Puzzle</title>
+  <base href="/">
+  <title>BonsaiChess - Puzzles</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
   <style>
@@ -12,15 +12,16 @@
     body { padding-top: 1.5rem; padding-bottom: 2rem; }
     #board {
       contain: layout paint;
-      /* Hint compositing during piece animations */
       transform: translateZ(0);
       backface-visibility: hidden;
+      isolation: isolate;
     }
     .move-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
-    .move-num { min-width: 1.8rem; text-align: right; color: var(--bs-secondary); font-weight: 500; }
     .move-input { flex: 1; max-width: 6rem; }
     .feedback-correct { }
     .feedback-error { }
+    .nav-bar { display: flex; flex-wrap: nowrap; justify-content: flex-start; gap: 1.5rem; }
+    .nav-link { color: #000; text-decoration: none; }
     .white-1e1d7 {
       background-color: #ffffff !important;
       color: #333;
@@ -36,12 +37,19 @@
       color: #333;
     }
     @media (max-width: 767.98px) {
-      #board-col { width: 90%; margin: 0 auto; }
+      #board-col { width: 90%; margin: 1rem auto 0; }
+      #moves-col { width: 90%; margin-left: auto; margin-right: auto; }
+      .nav-bar { width: 90%; margin-left: auto; margin-right: auto; }
     }
   </style>
 </head>
 <body>
   <div class="container-lg px-4">
+    <div class="nav-bar" style="margin-bottom: 1rem;">
+      <a href="/" class="nav-link">Puzzles</a>
+      <a href="/daily" class="nav-link">Daily</a>
+      <a href="/notation" class="nav-link">Notation</a>
+    </div>
     <div id="loading" class="text-center py-5 text-secondary" style="display: none;">
       <div class="spinner-border spinner-border-sm me-2" role="status"></div>
       Loading puzzle&hellip;
@@ -56,7 +64,7 @@
         <div class="col-md-5" id="board-col">
           <div id="board" style="width: 100%;"></div>
         </div>
-        <div class="col-md-4 d-flex flex-column">
+        <div id="moves-col" class="col-md-4 d-flex flex-column">
           <p id="to-play" style="margin-bottom:0.5rem"></p>
           <div id="move-rows" style="margin-bottom:0.75rem"></div>
           <div style="margin-bottom:0.5rem">
@@ -71,6 +79,7 @@
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+  <script>window.BONSAI_PUZZLE_API = "/api/puzzle";</script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

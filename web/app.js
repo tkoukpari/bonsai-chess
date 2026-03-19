@@ -38,7 +38,7 @@ import { Chess } from 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/ch
     if (!fen || mc <= 0) return [];
     var parts = fen.split(/\s/);
     var whiteFirst = parts.length <= 1 || parts[1] !== 'b';
-    var moveNumber = 1;
+    var moveNumber = parts.length >= 6 ? parseInt(parts[5], 10) || 1 : 1;
     var isWhite = whiteFirst;
     var inputIndex = 0;
     var rowMap = {};
@@ -131,7 +131,7 @@ import { Chess } from 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/ch
       position: fen,
       showNotation: false,
       // Use PNG pieces to avoid SVG repaint flashes during animations.
-      pieceTheme: 'img/chesspieces/wikipedia/{piece}.png',
+      pieceTheme: 'img/chesspieces/merida/{piece}.svg',
       moveSpeed: 600,
       snapbackSpeed: 600,
       snapSpeed: 100,
@@ -160,11 +160,13 @@ import { Chess } from 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/ch
     board.position(fen, true);
   }
 
+  var puzzleApi = typeof window.BONSAI_PUZZLE_API === 'string' ? window.BONSAI_PUZZLE_API : '/api/puzzle';
+
   function fetchPuzzle() {
     showLoading();
     setFeedback('', false);
 
-    fetch('/api/puzzle/daily')
+    fetch(puzzleApi)
       .then(function (res) {
         if (!res.ok) return res.text().then(function (t) { throw new Error(t || 'Server error'); });
         return res.json();
@@ -193,7 +195,7 @@ import { Chess } from 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/ch
   }
 
   function loadNextPuzzle() {
-    fetch('/api/puzzle/daily')
+    fetch(puzzleApi)
       .then(function (res) {
         if (!res.ok) return res.text().then(function (t) { throw new Error(t || 'Server error'); });
         return res.json();

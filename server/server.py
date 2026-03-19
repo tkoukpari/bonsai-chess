@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
 import argparse
+import hashlib
 import math
 import os
 import random
 from contextlib import contextmanager
+from datetime import date
 from functools import wraps
 
 from flask import Flask, abort, jsonify, make_response, request, send_from_directory
@@ -318,6 +320,15 @@ def get_or_delete_current_user(user_id):
 def get_puzzle():
     if request.method == "OPTIONS":
         return add_cors_headers(make_response("", 200))
+
+    if DEV_MODE:
+        puzzle = _dev_pick_puzzle()
+        move_count = len(parse_expected_moves(puzzle["expected_moves"]))
+        return add_cors_headers(jsonify({
+            "id": puzzle["id"], "fen": puzzle["fen"],
+            "moveCount": move_count, "elo": puzzle["elo"],
+        }))
+
     user_id = get_current_user_id_from_token()
     elo_range = request.args.get("elo_range", 100, type=int)
     ph = "%s"
@@ -373,14 +384,24 @@ def get_puzzle():
     )
 
 
+def _daily_puzzle_index(total_count: int) -> int:
+    """Deterministic index from today's date (UTC). Same day = same puzzle."""
+    today = date.today()
+    day_str = today.isoformat()
+    h = hashlib.sha256(day_str.encode()).hexdigest()
+    return int(h[:16], 16) % total_count if total_count else 0
+
+
 @app.route("/api/puzzle/daily", methods=["GET", "OPTIONS"])
 def get_puzzle_daily():
-    """Return a random puzzle."""
+    """Return the puzzle of the day: hash(date) % count, then index into puzzles by id."""
     if request.method == "OPTIONS":
         return add_cors_headers(make_response("", 200))
 
     if DEV_MODE:
-        puzzle = _dev_current_puzzle or _dev_pick_puzzle()
+        n = len(DEV_PUZZLES)
+        idx = _daily_puzzle_index(n)
+        puzzle = DEV_PUZZLES[idx]
         move_count = len(parse_expected_moves(puzzle["expected_moves"]))
         return add_cors_headers(jsonify({
             "id": puzzle["id"], "fen": puzzle["fen"],
@@ -389,8 +410,16 @@ def get_puzzle_daily():
 
     with get_database_connection() as connection:
         cursor = _cursor(connection)
+        cursor.execute("SELECT COUNT(*) AS c FROM puzzles")
+        total = cursor.fetchone()["c"]
+    if total == 0:
+        return make_response("No puzzles available", 500)
+    idx = _daily_puzzle_index(total)
+    with get_database_connection() as connection:
+        cursor = _cursor(connection)
         cursor.execute(
-            "SELECT id, fen, expected_moves, elo FROM puzzles ORDER BY RANDOM() LIMIT 1"
+            "SELECT id, fen, expected_moves, elo FROM puzzles ORDER BY id LIMIT 1 OFFSET %s",
+            (idx,),
         )
         puzzle_row = cursor.fetchone()
     if puzzle_row is None:
@@ -497,12 +526,19 @@ WEB_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web"))
 
 @app.route("/")
 def serve_root():
-    abort(404)
+    return send_from_directory(WEB_DIR, "index.html")
 
 
 @app.route("/daily")
 def serve_daily():
-    return send_from_directory(WEB_DIR, "index.html")
+    return send_from_directory(WEB_DIR, "daily.html")
+
+
+def _static_response(path, directory=WEB_DIR):
+    resp = send_from_directory(directory, path)
+    if path.startswith("img/") or path.endswith(".css") or path.endswith(".js"):
+        resp.headers["Cache-Control"] = "public, max-age=31536000"
+    return resp
 
 
 @app.route("/daily/<path:path>")
@@ -511,8 +547,25 @@ def serve_daily_assets(path):
         abort(404)
     file_path = os.path.join(WEB_DIR, path)
     if os.path.isfile(file_path):
-        return send_from_directory(WEB_DIR, path)
-    return send_from_directory(WEB_DIR, "index.html")
+        return _static_response(path)
+    return send_from_directory(WEB_DIR, "daily.html")
+
+
+@app.route("/notation")
+def serve_notation():
+    return send_from_directory(WEB_DIR, "notation.html")
+
+
+@app.route("/<path:path>")
+def serve_static(path):
+    if path.startswith("api") or path in ("daily", "notation"):
+        abort(404)
+    if path in ("", "index.html"):
+        return send_from_directory(WEB_DIR, "index.html")
+    file_path = os.path.join(WEB_DIR, path)
+    if os.path.isfile(file_path):
+        return _static_response(path)
+    abort(404)
 
 
 if __name__ == "__main__":
