@@ -46,6 +46,9 @@ struct ChessBoardView: View {
                         }
                     }
                 }
+                .transaction { txn in
+                    txn.animation = nil
+                }
 
                 if let anim = animatingMove {
                     animatingPieceOverlay(anim: anim, cellSize: cellSize, pieceSize: pieceSize)
@@ -54,7 +57,6 @@ struct ChessBoardView: View {
             .frame(width: side, height: side)
             .clipShape(Rectangle())
             .overlay(Rectangle().stroke(borderColor, lineWidth: 2))
-            .drawingGroup()
         }
         .aspectRatio(1, contentMode: .fit)
     }

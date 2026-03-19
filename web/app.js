@@ -5,6 +5,7 @@ import { Chess } from 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/ch
 
   let game = null;
   let board = null;
+  let pendingBoardMoveEnd = null;
   let state = {
     puzzleId: null,
     fen: null,
@@ -129,12 +130,20 @@ import { Chess } from 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/ch
     var cfg = {
       position: fen,
       showNotation: false,
-      pieceTheme: 'img/chesspieces/merida/{piece}.svg',
+      // Use PNG pieces to avoid SVG repaint flashes during animations.
+      pieceTheme: 'img/chesspieces/wikipedia/{piece}.png',
       moveSpeed: 600,
       snapbackSpeed: 600,
       snapSpeed: 100,
       trashSpeed: 200,
-      appearSpeed: 200
+      appearSpeed: 200,
+      onMoveEnd: function () {
+        if (typeof pendingBoardMoveEnd === 'function') {
+          var cb = pendingBoardMoveEnd;
+          pendingBoardMoveEnd = null;
+          cb();
+        }
+      }
     };
     if (board) {
       board.position(fen, false);
@@ -142,6 +151,13 @@ import { Chess } from 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/ch
       board = Chessboard('board', cfg);
       window.addEventListener('resize', function () { board.resize(); });
     }
+  }
+
+  function animateBoardToFen(fen, after) {
+    // Defer DOM-heavy updates until Chessboard.js finishes animating,
+    // to avoid jank / full-page repaints mid-animation.
+    pendingBoardMoveEnd = typeof after === 'function' ? after : null;
+    board.position(fen, true);
   }
 
   function fetchPuzzle() {
@@ -163,11 +179,13 @@ import { Chess } from 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/ch
 
         showPuzzle();
         initBoard(data.fen);
-        board.resize();
-        el.toPlay.textContent = toPlayLabel(data.fen);
-        renderMoveInputs();
-        updateCheckBtn();
-        setFeedback('', false);
+        requestAnimationFrame(function () {
+          board.resize();
+          el.toPlay.textContent = toPlayLabel(data.fen);
+          renderMoveInputs();
+          updateCheckBtn();
+          setFeedback('', false);
+        });
       })
       .catch(function (err) {
         showError(err.message || 'Cannot reach server.');
@@ -189,11 +207,12 @@ import { Chess } from 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/ch
         state.isAnimating = false;
 
         game = new Chess(data.fen);
-        board.position(data.fen, true);
-        el.toPlay.textContent = toPlayLabel(data.fen);
-        renderMoveInputs();
-        updateCheckBtn();
-        setFeedback('', false);
+        animateBoardToFen(data.fen, function () {
+          el.toPlay.textContent = toPlayLabel(data.fen);
+          renderMoveInputs();
+          updateCheckBtn();
+          setFeedback('', false);
+        });
       })
       .catch(function () {
         state.checkLocked = false;
@@ -220,9 +239,11 @@ import { Chess } from 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/ch
       var san = moves[idx];
       var move = game.move(san);
       if (!move) { idx++; runNext(); return; }
+      pendingBoardMoveEnd = function () {
+        idx++;
+        setTimeout(runNext, 250);
+      };
       board.move(move.from + '-' + move.to);
-      idx++;
-      setTimeout(runNext, 1200);
     }
     setTimeout(runNext, 500);
   }
