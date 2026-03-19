@@ -72,7 +72,7 @@ def convert_lichess_to_bonsai(
     Returns (fen, expected_moves, elo) or None if conversion fails.
     """
     moves = lichess_moves.strip().split()
-    if len(moves) < 2:
+    if len(moves) < 5:
         return None
 
     try:
@@ -118,8 +118,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Import Lichess puzzles into BonsaiChess")
     parser.add_argument("--max-puzzles", type=int, default=10000, help="Max puzzles to import")
-    parser.add_argument("--rating-min", type=int, default=700, help="Min puzzle rating")
-    parser.add_argument("--rating-max", type=int, default=1300, help="Max puzzle rating")
+    parser.add_argument("--rating-min", type=int, default=1800, help="Min puzzle rating")
     parser.add_argument("--sample-every", type=int, default=10, help="Take every Nth puzzle in range (lower = more puzzles, 10 = ~10k from ~100k scanned)")
     args = parser.parse_args()
 
@@ -149,7 +148,7 @@ def main():
         except ValueError:
             continue
 
-        if not (args.rating_min <= rating <= args.rating_max):
+        if rating < args.rating_min:
             continue
 
         in_range += 1
