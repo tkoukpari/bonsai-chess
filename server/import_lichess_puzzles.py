@@ -118,7 +118,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Import Lichess puzzles into BonsaiChess")
     parser.add_argument("--max-puzzles", type=int, default=10000, help="Max puzzles to import")
-    parser.add_argument("--rating-min", type=int, default=1600, help="Min puzzle rating")
+    parser.add_argument("--rating-min", type=int, default=1400, help="Min puzzle rating")
     parser.add_argument("--sample-every", type=int, default=10, help="Take every Nth puzzle in range (lower = more puzzles, 10 = ~10k from ~100k scanned)")
     args = parser.parse_args()
 
