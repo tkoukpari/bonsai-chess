@@ -1,0 +1,6 @@
+(library
+ (name bonsai_chess_types)
+ (wrapped false)
+ (libraries core re)
+ (preprocess (pps ppx_jane))
+ (modules bonsai_chess_types elo fen id move piece square))

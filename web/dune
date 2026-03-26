@@ -1,0 +1,5 @@
+(rule
+ (mode promote)
+ (deps ../frontend/app.bc.js)
+ (target app.js)
+ (action (copy %{deps} %{target})))

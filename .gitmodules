@@ -1,0 +1,3 @@
+[submodule "cpp-chess/external"]
+	path = cpp-chess/external
+	url = https://github.com/pjpuzzler/cpp-chess.git

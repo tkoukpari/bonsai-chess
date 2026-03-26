@@ -1,0 +1,7 @@
+_build/
+*.o
+*.so
+*.a
+*.opam
+!bonsai_chess.opam
+web/app.js

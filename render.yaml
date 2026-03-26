@@ -1,17 +1,16 @@
 services:
   - type: web
     name: bonsai-chess-api
-    runtime: python
-    rootDir: server
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn server:app
+    runtime: docker
     envVars:
-      - key: JWT_SECRET
-        generateValue: true
       - key: DATABASE_URL
         fromDatabase:
           name: bonsai-chess-db
           property: connectionString
+      - key: PORT
+        value: 8080
+
+    healthCheckPath: /
 
 databases:
   - name: bonsai-chess-db

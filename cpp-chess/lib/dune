@@ -1,0 +1,15 @@
+(library
+ (name cpp_chess)
+ (modules cpp_chess)
+ (preprocess
+  (pps ppx_jane))
+ (libraries core)
+ (foreign_stubs
+  (language cxx)
+  (names chess_stubs)
+  (include_dirs ../external)
+  (flags
+   -std=c++20
+   -stdlib=libc++
+   -I/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1))
+ (c_library_flags -lc++ -lc++abi))

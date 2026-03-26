@@ -1,0 +1,5 @@
+(executable
+ (name main)
+ (preprocess
+  (pps ppx_jane))
+ (libraries bonsai_chess core_unix core_unix.command_unix))

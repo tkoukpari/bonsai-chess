@@ -1,0 +1,7 @@
+;; Build browser bundle with: [dune build --profile release web/app.js].
+(executable
+ (name app)
+ (modes js)
+ (modules app chess_js http i18n puzzle_rows)
+ (libraries bonsai.web core js_of_ocaml ppx_yojson_conv_lib yojson async_kernel)
+ (preprocess (pps ppx_jane ppx_yojson_conv bonsai.ppx_bonsai js_of_ocaml-ppx)))

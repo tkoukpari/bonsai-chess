@@ -1,0 +1,173 @@
+html,
+body {
+  background: #f8f9fa;
+}
+
+html {
+  font-size: revert;
+}
+
+body {
+  padding-top: 1.5rem;
+  padding-bottom: 2rem;
+  font-family: revert;
+  font-size: revert;
+  line-height: revert;
+  font-weight: revert;
+  color: revert;
+  -webkit-text-size-adjust: revert;
+  text-size-adjust: revert;
+}
+
+p {
+  margin-block: revert;
+  margin-inline: revert;
+}
+
+a:not([class]) {
+  color: revert;
+  text-decoration: revert;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: revert;
+  font-size: revert;
+  line-height: revert;
+}
+
+.text-secondary,
+.text-danger {
+  color: inherit !important;
+}
+
+#app .btn,
+.container-lg .btn {
+  all: revert;
+  box-sizing: border-box;
+}
+
+#board {
+  contain: layout paint;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  isolation: isolate;
+}
+
+.move-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.move-num {
+  flex: 0 0 auto;
+  min-width: 4.5ch;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+.move-input {
+  flex: 1;
+  max-width: 5.25rem;
+  box-sizing: border-box;
+  caret-color: #000;
+  color: #000;
+  -webkit-tap-highlight-color: transparent;
+  border: 1px solid #767676;
+  background-color: #fff;
+}
+
+.move-input:focus,
+.move-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+  border-color: #767676;
+}
+
+.feedback-correct {
+}
+
+.feedback-error {
+}
+
+.nav-top-row {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.nav-bar {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  gap: 1.5rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.nav-link {
+  color: #000;
+  text-decoration: none;
+}
+
+.i18n-fa {
+  unicode-bidi: isolate;
+}
+
+.lang-toggle {
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.white-1e1d7 {
+  background-color: #ffffff !important;
+  color: #333;
+}
+
+.black-3c85d {
+  background: repeating-linear-gradient(
+    -45deg,
+    #999999,
+    #999999 3px,
+    #ffffff 3px,
+    #ffffff 6px
+  ) !important;
+  color: #333;
+}
+
+@media (max-width: 767.98px) {
+  #board-col {
+    width: 90%;
+    margin: 1rem auto 0;
+  }
+
+  #moves-col {
+    width: 90%;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  #notation-content {
+    width: 90%;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .nav-top-row {
+    gap: 0.5rem;
+  }
+
+  .nav-bar {
+    gap: 0.75rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .nav-bar .nav-link {
+    white-space: nowrap;
+  }
+}

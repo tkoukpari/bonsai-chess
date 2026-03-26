@@ -1,0 +1,23 @@
+(library
+ (name bonsai_chess)
+ (preprocess
+  (pps ppx_jane ppx_yojson_conv))
+ (libraries
+  cpp_chess
+  bonsai_chess_types
+  caqti
+  caqti-lwt
+  stdio
+  caqti-lwt.unix
+  caqti-driver-postgresql
+  cohttp-lwt-unix
+  conduit-lwt-unix
+  core_unix
+  core_unix.sys_unix
+  core_unix.time_float_unix
+  yojson
+  ppx_yojson_conv_lib
+  cmdliner
+  lwt
+  lwt.unix)
+ (modules bonsai_chess import db puzzle server))

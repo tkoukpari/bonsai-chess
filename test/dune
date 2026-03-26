@@ -1,0 +1,6 @@
+(library
+ (name bonsai_chess_tests)
+ (modules test_moves test_cpp_chess)
+ (libraries bonsai_chess_types cpp_chess expect_test_helpers_core core)
+ (inline_tests)
+ (preprocess (pps ppx_jane)))
