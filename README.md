@@ -1,3 +1,5 @@
+Mostly vibe-coded chess puzzle app written with OCaml Bonsai.
+
 ## Frontend build
 
 - `web/app.js` is generated from `frontend/app.ml` (Bonsai/OCaml).
